@@ -989,7 +989,6 @@ int main() {
         renderInfo.pDepthAttachment = &depthAttachment;
 
         pfn_vkCmdBeginRendering(cmd, &renderInfo);
-
         pfn_vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_gfxPipeline);
 
         VkViewport viewport = {0.0f, 0.0f, (float)g_width, (float)g_height, 0.0f, 1.0f};
@@ -997,40 +996,30 @@ int main() {
         VkRect2D scissor = {{0, 0}, {g_width, g_height}};
         pfn_vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-        // ----------------------------------------------------
-        // THE HYBRID TRAFFIC COP: Which buffer are we drawing?
-        // ----------------------------------------------------
-        VkBuffer vertexBuffer;
-        if (g_force_draw_buffer == 2) {
-            vertexBuffer = (frameIndex % 2 == 0) ? g_buf_swarm_cpu_A : g_buf_swarm_cpu_B;
-        } else if (g_force_draw_buffer == 0) {
-            vertexBuffer = g_buf_swarm_A;
-        } else if (g_force_draw_buffer == 1) {
-            vertexBuffer = g_buf_swarm_B;
-        } else {
-            vertexBuffer = (frameIndex % 2 == 0) ? g_buf_swarm_A : g_buf_swarm_B;
-        }
-
-        VkDeviceSize offsets[] = {0};
-        pfn_vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, offsets);
-
-        // Push the LIVE Camera Matrix from Lua
+        // Push the LIVE Camera Matrix from Lua (Applies to both layers)
         pfn_vkCmdPushConstants(cmd, g_gfxLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(CameraPushConstants), &g_cam_pc);
+        VkDeviceSize offsets[] = {0};
 
         // ========================================================
-        // THE MAGIC HANDOFF: Let the GPU dictate its own draw count!
+        // LAYER 1: THE CPU AVX2 SWARM (The Core Geometry)
         // ========================================================
-        //if (g_force_draw_buffer == -1) {
-            // HYBRID MODE: Execute the Indirect Command Buffer we just filled in Compute!
-            //pfn_vkCmdDrawIndirect(cmd, current_buf_cmd, 0, 1, 16);
-        //} else {
-            // PURE CPU MODE: Fallback to the manual Lua draw count
-            //pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0);
-        //}
+        VkBuffer cpuBuffer = (frameIndex % 2 == 0) ? g_buf_swarm_cpu_A : g_buf_swarm_cpu_B;
+        pfn_vkCmdBindVertexBuffers(cmd, 0, 1, &cpuBuffer, offsets);
+        
+        // We know exactly how many CPU particles there are. Draw them directly!
+        pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0); 
+
+
         // ========================================================
-        // THE MAGIC HANDOFF: Draw exactly what the CPU allocated!
+        // LAYER 2: THE GPU AUTONOMOUS METEORS (The Magic Handoff)
         // ========================================================
-        pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0);
+        VkBuffer gpuBuffer = (frameIndex % 2 == 0) ? g_buf_swarm_A : g_buf_swarm_B; // Ping/Pong
+        pfn_vkCmdBindVertexBuffers(cmd, 0, 1, &gpuBuffer, offsets);
+        
+        // We have NO IDEA how many meteors the GPU spawned. 
+        // Let the GPU dictate its own draw count!
+        pfn_vkCmdDrawIndirect(cmd, current_buf_cmd, 0, 1, 16);
+
         pfn_vkCmdEndRendering(cmd);
 
         imgBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;

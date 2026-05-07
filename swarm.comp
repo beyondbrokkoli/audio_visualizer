@@ -6,9 +6,19 @@ struct Particle {
     float x, y, z, pad;
 };
 
+// Binding 0: Read-Only access to the CPU particles (if we want to spawn sparks off them later)
 layout(std430, binding = 0) readonly buffer InSwarm { Particle inParticles[]; };     
+// Binding 1: Our dedicated GPU autonomous layer!
 layout(std430, binding = 1) writeonly buffer OutSwarm { Particle outParticles[]; };  
 layout(std430, binding = 2) readonly buffer PastSwarm { Particle pastParticles[]; }; 
+
+// THE INDIRECT DRAW BUFFER
+layout(std430, binding = 3) buffer DrawCmd {
+    uint vertexCount;
+    uint instanceCount; // <--- We pack this!
+    uint firstVertex;
+    uint firstInstance;
+} drawCmd;
 
 layout(push_constant) uniform PushConstants {
     float dt; float time; int state; int push; int pull;
@@ -24,56 +34,50 @@ uint pcg_hash(uint seed) {
 void main() {
     uint id = gl_GlobalInvocationID.x;
     
-    // IMPORTANT: Let's process all 1,000,000 for now!
-    if (id >= 1000000) return;
+    // Max capacity for GPU particles
+    if (id >= 250000) return; 
 
-    vec3 cpuPos = vec3(inParticles[id].x, inParticles[id].y, inParticles[id].z);
-    vec3 gpuPastPos = vec3(pastParticles[id].x, pastParticles[id].y, pastParticles[id].z);
-
-    if (length(gpuPastPos) < 0.1) gpuPastPos = cpuPos;
-
-    uint h = pcg_hash(id);
+    uint h = pcg_hash(id ^ uint(pc.time * 1000.0));
     float rand1 = float(h & 0xFFFF) / 65535.0;
     float rand2 = float((h >> 16) & 0xFFFF) / 65535.0;
-    vec3 center = vec3(0.0, 5000.0, 0.0);
-
-    vec3 inferredVelocity = (cpuPos - gpuPastPos) * pc.dt;
-    vec3 pos = gpuPastPos;
-
-    if (pc.push == 1) {
-        vec3 dir = normalize(pos - center);
-        pos += dir * (rand2 * 300.0);
-    }
-    else if (pc.pull == 1) {
-        float currentRadius = 2000.0 + (pc.bass * 6000.0);
-        vec3 targetSphere = center + normalize(pos - center) * (rand1 * currentRadius);
-        pos = mix(pos, targetSphere, 0.1);
-    }
-    else {
-        float snap_speed = mix(0.02, 0.15, pc.treble);
-        vec3 audioWobble = inferredVelocity * (0.1 + (pc.mid * 0.5));
-        pos = mix(pos, cpuPos, snap_speed) + audioWobble;
-    }
+    float rand3 = float((h >> 8) & 0xFFFF) / 65535.0;
 
     // ====================================================
-    // THE SAFE QUANTUM CULL (Frustum Culling)
+    // THE 120BPM METEOR SHOWER (GPU AUTONOMOUS LAYER)
     // ====================================================
-    bool isAlive = true;
-    
-    // Only evaporate particles if the music is actively pumping heavy BASS
-    // but the particle somehow has very low momentum (the stragglers)
-    if (pc.bass > 0.8 && length(inferredVelocity) < 1.0) {
-        if (rand1 > 0.5) isAlive = false;
-    }
+    // Only spawn GPU particles when the bass drops!
+    if (pc.bass > 0.85) {
+        
+        // 1. Atomically claim a tightly-packed memory slot!
+        uint spawn_id = atomicAdd(drawCmd.instanceCount, 1);
 
-    if (!isAlive) {
-        // Safe Culling: Shoot the particle 9 million units away!
-        // The GPU Camera Frustum will naturally ignore it without breaking driver math.
-        pos = vec3(9999999.0); 
-    }
+        // Safeguard: Don't exceed buffer size
+        if (spawn_id < 250000) {
+            
+            // 2. Spawn them from WAY outside the universe!
+            // They fly inward towards the CPU swarm
+            float radius = 15000.0 + (rand1 * 5000.0);
+            float theta = rand2 * 6.28318; // 2 PI
+            float phi = acos(2.0 * rand3 - 1.0);
 
-    outParticles[id].x = pos.x;
-    outParticles[id].y = pos.y;
-    outParticles[id].z = pos.z;
-    outParticles[id].pad = inParticles[id].pad;
+            vec3 spawnPos = vec3(
+                radius * sin(phi) * cos(theta),
+                radius * cos(phi) + 5000.0,
+                radius * sin(phi) * sin(theta)
+            );
+
+            // Give them a velocity trajectory towards the center
+            vec3 center = vec3(0.0, 5000.0, 0.0);
+            vec3 dir = normalize(center - spawnPos);
+            
+            // Note: In a real system you'd add this velocity to the Ping-Pong,
+            // but for this visual impact, we just plot them moving based on pc.time!
+            vec3 currentPos = spawnPos + (dir * pc.time * 8000.0 * pc.bass);
+
+            outParticles[spawn_id].x = currentPos.x;
+            outParticles[spawn_id].y = currentPos.y;
+            outParticles[spawn_id].z = currentPos.z;
+            outParticles[spawn_id].pad = 0.0;
+        }
+    }
 }
