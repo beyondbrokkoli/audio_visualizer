@@ -259,7 +259,7 @@ EXPORT void vmath_swarm_tornado(int count, float* px, float* py, float* pz, floa
         APPLY_SPRING_PHYSICS(stiffness);
     }
 }
-EXPORT void vmath_swarm_gyroscope(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scalee, float stiffness) {
+EXPORT void vmath_swarm_gyroscope(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scale, float stiffness) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_r = _mm256_set1_ps(7000.0f * scale);
     __m256 v_time_ang = _mm256_set1_ps(time * 2.5f);
