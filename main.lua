@@ -164,8 +164,8 @@ function love_load()
     VibeMath.vmath_bind_engine(memory.RenderStruct, nil, nil)
 
     -- Scatter the particles across the 20,000x20,000 universe
-    VibeMath.vmath_seed_swarm(1000000)
-    print("[INIT] VRAM Seeded with 1.0M Particles.")
+    VibeMath.vmath_seed_swarm(10000000)
+    print("[INIT] VRAM Seeded with 10.0M Particles.")
     -- Boot the UDP Server
     C_Bridge.net_host(1337)
 
