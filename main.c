@@ -34,6 +34,14 @@ GLFWwindow* g_window = NULL;
 
 int g_quitting = 0;
 
+// Define the exact struct layout that Lua will also use
+typedef struct {
+    float bass;
+    float mid;
+    float treble;
+    int has_new_data;
+} AudioState;
+
 VkInstance g_instance;
 VkDevice g_device;
 VkQueue g_queue;
@@ -454,29 +462,44 @@ static int l_net_join(lua_State* L) {
     return 1;
 }
 
-// [BRIDGE] Non-blocking read
+// [BRIDGE] High-Performance, Zero-Allocation UDP Polling
 static int l_net_poll(lua_State* L) {
-    if (g_udp_socket == INVALID_SOCKET) { lua_pushnil(L); return 1; }
+    if (g_udp_socket == INVALID_SOCKET) return 0;
+
+    // 1. Grab the raw memory pointer passed from Lua
+    AudioState* state = (AudioState*)lua_topointer(L, 1);
+    if (!state) return 0;
 
     char buffer[1024];
     struct sockaddr_in sender;
     socklen_t sender_len = sizeof(sender);
+    
+    int bytes = 0;
+    int latest_bytes = -1;
+    char latest_buffer[1024];
 
-    int bytes = recvfrom(g_udp_socket, buffer, sizeof(buffer) - 1, 0, (struct sockaddr*)&sender, &sender_len);
-
-    if (bytes > 0) {
-        buffer[bytes] = '\0'; // Null-terminate the string
-        lua_pushstring(L, buffer);
-
-        // If we are the server, save who just talked to us so we can reply!
+    // 2. DRAIN THE SOCKET: Read until the buffer is empty to avoid audio lag
+    while ((bytes = recvfrom(g_udp_socket, buffer, sizeof(buffer) - 1, 0, (struct sockaddr*)&sender, &sender_len)) > 0) {
+        latest_bytes = bytes;
+        memcpy(latest_buffer, buffer, bytes);
+        
+        // Save who just talked to us
         if (g_peer_addr.sin_port == 0) {
             g_peer_addr = sender;
         }
-        return 1;
     }
 
-    lua_pushnil(L); // No messages waiting
-    return 1;
+    // 3. If we received any valid packets this frame, parse the absolute newest one
+    if (latest_bytes > 0) {
+        latest_buffer[latest_bytes] = '\0'; // Null-terminate
+        
+        // Directly inject the floats into the struct memory
+        if (sscanf(latest_buffer, "%f,%f,%f", &state->bass, &state->mid, &state->treble) == 3) {
+            state->has_new_data = 1;
+        }
+    }
+
+    return 0; // Return 0. We are NOT pushing anything to the Lua stack!
 }
 // [BRIDGE] Send a string over UDP
 static int l_net_send(lua_State* L) {

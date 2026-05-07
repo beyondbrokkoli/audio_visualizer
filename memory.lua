@@ -75,8 +75,19 @@ ffi.cdef[[
     void vmath_step_swarm(int particle_count, float time, float dt, int state, int push_active, int pull_active, float bass, float mid, float treble);
     void vmath_init_thread_pool();
     void vmath_shutdown_thread_pool();
-]]
 
+    typedef struct { float bass, mid, treble; int has_new_data; } AudioState;
+]]
+Engine.AudioData = ffi.new("AudioState")
+-- Initialize default audio values to prevent nil errors
+Engine.Audio = {
+    prev_bass = 0.0,
+    bass = 0.0,
+    mid = 0.0,
+    treble = 0.0,
+    target_beats = 16,
+    current_beat = 0
+}
 -- ========================================================================
 -- [3] MEMORY ALLOCATORS
 -- ========================================================================

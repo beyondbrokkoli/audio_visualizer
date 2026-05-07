@@ -183,19 +183,23 @@ function love_update(dt)
     dt = math.min(dt, 0.033)
     Engine.Time = Engine.Time + dt
     frame_count = frame_count + 1
+-- ====================================================
+    -- INGEST PYTHON AUDIO STREAM (Zero-Allocation Memory Bridge)
     -- ====================================================
-    -- INGEST PYTHON AUDIO STREAM (Non-Blocking)
-    -- ====================================================
-    Engine.Audio.prev_bass = Engine.Audio.bass or 0.0
+    Engine.Audio.prev_bass = Engine.Audio.bass
 
-    local msg = C_Bridge.net_poll()
-    if msg then
-        local b, m, t = msg:match("([^,]+),([^,]+),([^,]+)")
-        if b and m and t then
-            Engine.Audio.bass = tonumber(b) or 0.0
-            Engine.Audio.mid = tonumber(m) or 0.0
-            Engine.Audio.treble = tonumber(t) or 0.0
-        end
+    -- 1. Pass the FFI memory address directly into the C-Bridge
+    C_Bridge.net_poll(Engine.AudioData)
+
+    -- 2. Check the memory block to see if C flagged new data
+    if Engine.AudioData.has_new_data == 1 then
+        -- Read natively from the FFI struct. No string parsing!
+        Engine.Audio.bass = Engine.AudioData.bass
+        Engine.Audio.mid = Engine.AudioData.mid
+        Engine.Audio.treble = Engine.AudioData.treble
+
+        -- Reset the flag so we don't re-trigger on stale data next frame
+        Engine.AudioData.has_new_data = 0
     end
 
     -- ====================================================
@@ -203,21 +207,15 @@ function love_update(dt)
     -- ====================================================
     local is_beat_drop = false
 
-    -- Initialize our rhythm counters if they don't exist
-    Engine.Audio.target_beats = Engine.Audio.target_beats or 16
-    Engine.Audio.current_beat = Engine.Audio.current_beat or 0
-
     -- Detect a hard transient (Bass spikes past 0.85)
     if Engine.Audio.bass > 0.85 and Engine.Audio.prev_bass <= 0.85 then
         is_beat_drop = true
         Engine.Audio.current_beat = Engine.Audio.current_beat + 1
 
-        -- When we hit the target, shift the shape and roll the dice for the next one!
         if Engine.Audio.current_beat >= Engine.Audio.target_beats then
             Engine.SwarmState = Engine.SwarmState + 1
             if Engine.SwarmState > 6 then Engine.SwarmState = 0 end
 
-            -- Randomize how long this new shape gets to express itself (8, 16, 24, or 32 beats)
             local phase_lengths = {8, 16, 24, 32}
             Engine.Audio.target_beats = phase_lengths[math.random(1, #phase_lengths)]
             Engine.Audio.current_beat = 0
