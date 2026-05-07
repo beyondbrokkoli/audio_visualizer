@@ -78,16 +78,9 @@ ffi.cdef[[
 
     typedef struct { float bass, mid, treble; int has_new_data; } AudioState;
 ]]
+-- 2. Allocate the memory block permanently. 
+-- The GC will never touch this because we never lose the reference.
 Engine.AudioData = ffi.new("AudioState")
--- Initialize default audio values to prevent nil errors
-Engine.Audio = {
-    prev_bass = 0.0,
-    bass = 0.0,
-    mid = 0.0,
-    treble = 0.0,
-    target_beats = 16,
-    current_beat = 0
-}
 -- ========================================================================
 -- [3] MEMORY ALLOCATORS
 -- ========================================================================

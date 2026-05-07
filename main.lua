@@ -15,7 +15,6 @@ Engine = {
     ParadoxBlend = 0.0,
     SpacePressedLast = false
 }
-
 -- ========================================================
 -- PILLAR 2: THE AVX2 MATH LIBRARY (VibeMath)
 -- ========================================================
@@ -105,11 +104,19 @@ local function ExecuteVulkanRebuild(width, height, is_boot)
     end
 end
 
-
 -- ========================================================
 -- 5. STANDARD BOOT SEQUENCE
 -- ========================================================
 function love_load()
+    -- Initialize default audio values to prevent nil errors
+    Engine.Audio = {
+        prev_bass = 0.0,
+        bass = 0.0,
+        mid = 0.0,
+        treble = 0.0,
+        target_beats = 16,
+        current_beat = 0
+    }
     print("[LUA] Booting VibeEngine...")
     Engine.vk_context = vk_core.init()
 
@@ -148,7 +155,6 @@ function love_load()
     print("[INIT] VRAM Seeded with 1.0M Particles.")
     -- Boot the UDP Server
     C_Bridge.net_host(1337)
-    Engine.Audio = { bass = 0.0, mid = 0.0, treble = 0.0 }
 
     if use_avx2 then
         VibeMath.vmath_init_thread_pool()
