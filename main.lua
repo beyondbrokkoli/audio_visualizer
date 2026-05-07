@@ -8,27 +8,25 @@ Engine = {
     Resize = { is_resizing = false, timer = 0.0, cooldown = 0.25, new_width = 0, new_height = 0 },
     vk_context = nil, vk_swapchain = nil, vk_graphics = nil, vk_compute = nil, vk_descriptors = nil,
     Time = 0.0,
-    DrawCount = 1000000,
+    DrawCount = 10000000, -- 10 MILLION PARTICLES INITIATED
     SwarmState = 0,
     GravityBlend = 1.0,
     MetalBlend = 0.0,
     ParadoxBlend = 0.0,
     SpacePressedLast = false
 }
+
 -- ========================================================
 -- PILLAR 2: THE AVX2 MATH LIBRARY (VibeMath)
 -- ========================================================
--- Loaded dynamically. Handles purely CPU-side physics and ReBAR streaming.
 VibeMath = ffi.load(jit.os == "Windows" and "vibemath" or "./libvibemath.so")
 Config = {
-    physics_mode = "HYBRID" -- We have ascended.
+    physics_mode = "HYBRID"
 }
 
 -- ========================================================
 -- PILLAR 3: THE C-BRIDGE (Injected by main.c)
 -- ========================================================
--- C_Bridge already exists in global space. It handles Vulkan, GLFW, and Windowing.
--- We mock the LÖVE API here to route inputs safely into the C_Bridge.
 love = {
     keyboard = {
         isDown = function(key)
@@ -62,7 +60,6 @@ local cam_state = camera_math.create_state()
 local success, vk = pcall(ffi.load, "vulkan-1")
 if not success then success, vk = pcall(ffi.load, "vulkan") end
 
--- THE 64-BIT CONVERTER
 local function ptr2str(ptr)
     if ptr == nil then return "0" end
     local cdata_num = ffi.cast("uint64_t", ffi.cast("uintptr_t", ptr))
@@ -70,7 +67,7 @@ local function ptr2str(ptr)
 end
 
 -- ========================================================
--- 4. THE REBUILD ORCHESTRATOR (Boot & Resize)
+-- 4. THE REBUILD ORCHESTRATOR
 -- ========================================================
 local function ExecuteVulkanRebuild(width, height, is_boot)
     if not is_boot then
@@ -86,7 +83,6 @@ local function ExecuteVulkanRebuild(width, height, is_boot)
     Engine.vk_graphics = graphics_pipeline.Init(vk, Engine.vk_context, width, height)
     Engine.vk_compute = compute_pipeline.Init(vk, Engine.vk_context.device, Engine.vk_descriptors.pipelineLayout)
 
-    -- THE CRITICAL HANDOFF TO C99
     C_Bridge.set_core_handles(
         ptr2str(Engine.vk_context.device), ptr2str(Engine.vk_context.queue), Engine.vk_context.qIndex,
         ptr2str(Engine.vk_swapchain.handle), Engine.vk_swapchain.imageCount, width, height
@@ -108,23 +104,13 @@ end
 -- 5. STANDARD BOOT SEQUENCE
 -- ========================================================
 function love_load()
-    -- Initialize default audio values to prevent nil errors
-    Engine.Audio = {
-        prev_bass = 0.0,
-        bass = 0.0,
-        mid = 0.0,
-        treble = 0.0,
-        target_beats = 16,
-        current_beat = 0
-    }
     print("[LUA] Booting VibeEngine...")
     Engine.vk_context = vk_core.init()
 
-    -- Tell the unified memory manager which reality we are in
     local use_avx2 = (Config.physics_mode == "CPU_AVX2" or Config.physics_mode == "HYBRID")
     memory.Init(vk, Engine.vk_context, use_avx2)
 
-    -- Setup Descriptors with the Quad-Buffer layout
+    -- Setup Descriptors with the Quad-Buffer layout + Indirect
     Engine.vk_descriptors = descriptors.Init(
         vk, Engine.vk_context.device,
         memory.Buffers["SwarmCPU_A"],
@@ -135,39 +121,25 @@ function love_load()
         memory.Buffers["DrawCmd_B"]
     )
 
-    -- Build Pipelines & Hand to C
     local win_width, win_height = C_Bridge.getWindowSize()
     ExecuteVulkanRebuild(win_width, win_height, true)
 
-    -- Handoff 12 GPU Pointers to C
+    -- CRITICAL: Keep 12 parameters so main.c doesn't crash
     C_Bridge.submit_buffers(
-        -- 1-4: The Swarm VkBuffers
         ptr2str(memory.Buffers["SwarmCPU_A"]), ptr2str(memory.Buffers["SwarmCPU_B"]),
         ptr2str(memory.Buffers["SwarmPing"]), ptr2str(memory.Buffers["SwarmPong"]),
-
-        -- 5-8: The Swarm Mapped Pointers
         ptr2str(memory.Mapped["SwarmCPU_A"]), ptr2str(memory.Mapped["SwarmCPU_B"]),
         ptr2str(memory.Mapped["SwarmPing"]), ptr2str(memory.Mapped["SwarmPong"]),
-
-        -- 9-10: THE INDIRECT VKBUFFERS (The "Containers")
-        ptr2str(memory.Buffers["DrawCmd_A"]),
-        ptr2str(memory.Buffers["DrawCmd_B"]),
-
-        -- 11-12: THE INDIRECT MAPPED PTRS (The "Access Pass")
-        ptr2str(memory.Mapped["DrawCmd_A"]),
-        ptr2str(memory.Mapped["DrawCmd_B"])
+        ptr2str(memory.Buffers["DrawCmd_A"]), ptr2str(memory.Buffers["DrawCmd_B"]),
+        ptr2str(memory.Mapped["DrawCmd_A"]), ptr2str(memory.Mapped["DrawCmd_B"])
     )
 
-    -- Bind Buffer A initially to give C a valid target before the first frame.
-    -- FIX: Passed two nils to satisfy the new 3-argument FFI signature!
+    -- LEGACY BIND: We pad with nil to avoid FFI signature panics based on your current vibemath.c
     VibeMath.vmath_bind_vulkan_buffers(memory.Mapped["SwarmCPU_A"], nil, nil)
     VibeMath.vmath_bind_engine(memory.RenderStruct, nil, nil)
 
-    -- Scatter the particles across the 20,000x20,000 universe
-    VibeMath.vmath_seed_swarm(10000000)
-    print("[INIT] VRAM Seeded with 10.0M Particles.")
-    -- Boot the UDP Server
-    C_Bridge.net_host(1337)
+    VibeMath.vmath_seed_swarm(Engine.DrawCount)
+    print("[INIT] VRAM Seeded with " .. tostring(Engine.DrawCount) .. " Particles.")
 
     if use_avx2 then
         VibeMath.vmath_init_thread_pool()
@@ -188,9 +160,7 @@ function love_resize_trigger(w, h)
     Engine.Resize.new_height = h
 end
 
-local frame_count = 0
-
--- Add currentFrame to the function signature
+-- CRITICAL: Keep currentFrame in signature to prevent parity drift!
 function love_update(dt, currentFrame)
     if Engine.Resize.is_resizing then
         Engine.Resize.timer = Engine.Resize.timer + dt
@@ -203,104 +173,61 @@ function love_update(dt, currentFrame)
 
     dt = math.min(dt, 0.033)
     Engine.Time = Engine.Time + dt
-    frame_count = frame_count + 1
 
     -- ====================================================
-    -- INGEST PYTHON AUDIO STREAM (Zero-Allocation Memory Bridge)
+    -- MANUAL SWARM CHOREOGRAPHY (Restored)
     -- ====================================================
-    Engine.Audio.prev_bass = Engine.Audio.bass
-
-    -- 1. Pass the FFI memory address directly into the C-Bridge
-    C_Bridge.net_poll(Engine.AudioData)
-
-    -- 2. Check the memory block to see if C flagged new data
-    if Engine.AudioData.has_new_data == 1 then
-        -- Read natively from the FFI struct. No string parsing!
-        Engine.Audio.bass = Engine.AudioData.bass
-        Engine.Audio.mid = Engine.AudioData.mid
-        Engine.Audio.treble = Engine.AudioData.treble
-
-        -- Reset the flag so we don't re-trigger on stale data next frame
-        Engine.AudioData.has_new_data = 0
+    local space_down = love.keyboard.isDown("space")
+    if space_down and not Engine.SpacePressedLast then
+        Engine.SwarmState = Engine.SwarmState + 1
+        if Engine.SwarmState > 6 then Engine.SwarmState = 0 end
+        print("[STATE] Swarm Matrix Shifted to State: " .. Engine.SwarmState)
     end
+    Engine.SpacePressedLast = space_down
 
-    -- ====================================================
-    -- THE AUTO-VJ CHOREOGRAPHER (Poly-Rhythmic Skipper)
-    -- ====================================================
-    local is_beat_drop = false
+    -- Smooth Morphing Blends
+    if Engine.SwarmState == 0 then Engine.GravityBlend = math.min(1.0, Engine.GravityBlend + dt * 2.0)
+    else Engine.GravityBlend = math.max(0.0, Engine.GravityBlend - dt * 2.0) end
 
-    -- Detect a hard transient (Bass spikes past 0.85)
-    if Engine.Audio.bass > 0.85 and Engine.Audio.prev_bass <= 0.85 then
-        is_beat_drop = true
-        Engine.Audio.current_beat = Engine.Audio.current_beat + 1
+    if Engine.SwarmState == 5 then Engine.MetalBlend = math.min(1.0, Engine.MetalBlend + dt * 0.5)
+    else Engine.MetalBlend = math.max(0.0, Engine.MetalBlend - dt * 2.0) end
 
-        if Engine.Audio.current_beat >= Engine.Audio.target_beats then
-            Engine.SwarmState = Engine.SwarmState + 1
-            if Engine.SwarmState > 6 then Engine.SwarmState = 0 end
-
-            local phase_lengths = {8, 16, 24, 32}
-            Engine.Audio.target_beats = phase_lengths[math.random(1, #phase_lengths)]
-            Engine.Audio.current_beat = 0
-
-            print("[AUTO-VJ] Form Shift: State " .. Engine.SwarmState .. " | Expressing for " .. Engine.Audio.target_beats .. " beats.")
-        end
-    end
+    if Engine.SwarmState == 6 then Engine.ParadoxBlend = math.min(1.0, Engine.ParadoxBlend + dt * 0.5)
+    else Engine.ParadoxBlend = math.max(0.0, Engine.ParadoxBlend - dt * 2.0) end
 
     local push_active = love.mouse.isDown(1) and 1 or 0
     local pull_active = love.mouse.isDown(2) and 1 or 0
 
-    -- ====================================================
-    -- THE QUAD-BUFFER TRAFFIC COP (Heterogeneous Feedback)
-    -- ====================================================
     local mem = memory.RenderStruct
     mem.Swarm_State = Engine.SwarmState
     mem.Swarm_GravityBlend = Engine.GravityBlend
     mem.Swarm_MetalBlend = Engine.MetalBlend
     mem.Swarm_ParadoxBlend = Engine.ParadoxBlend
 
-    -- THE FIX: Let the Vulkan Hardware dictate the active ping-pong index!
+    -- ====================================================
+    -- HARDWARE SYNCHRONIZED TRAFFIC COP
+    -- ====================================================
+    -- 1. Use the hardware-locked frame from C!
     local active_cpu_idx = currentFrame
+    local target_cpu_mapped = (active_cpu_idx == 0) and memory.Mapped["SwarmCPU_A"] or memory.Mapped["SwarmCPU_B"]
+    
+    -- 2. Legacy Bind (Ignoring Heterogenous Feedback buffers)
+    VibeMath.vmath_bind_vulkan_buffers(target_cpu_mapped, nil, nil)
 
-    local target_cpu_mapped, past_cpu_mapped, past_gpu_mapped
-    if active_cpu_idx == 0 then
-        target_cpu_mapped = memory.Mapped["SwarmCPU_A"]
-        past_cpu_mapped = memory.Mapped["SwarmCPU_B"]
-        past_gpu_mapped = memory.Mapped["SwarmPong"]
-    else
-        target_cpu_mapped = memory.Mapped["SwarmCPU_B"]
-        past_cpu_mapped = memory.Mapped["SwarmCPU_A"]
-        past_gpu_mapped = memory.Mapped["SwarmPing"]
-    end
-
-    VibeMath.vmath_bind_vulkan_buffers(target_cpu_mapped, past_cpu_mapped, past_gpu_mapped)
-
-    -- 3. Pass AUDIO to the AVX2 CPU threads! (We are updating this signature next)
-    VibeMath.vmath_step_swarm(
-        Engine.DrawCount, Engine.Time, dt, Engine.SwarmState,
-        push_active, pull_active,
-        Engine.Audio.bass, Engine.Audio.mid, Engine.Audio.treble
-    )
+    -- 3. Legacy Step (No audio variables!)
+    VibeMath.vmath_step_swarm(Engine.DrawCount, Engine.Time, dt, Engine.SwarmState, push_active, pull_active)
 
     if Config.physics_mode == "HYBRID" then
-        -- Tell Compute Shader to read CPU data, add noise, and write to Ping/Pong
-        C_Bridge.set_compute_push_constants(
-            dt, Engine.Time, Engine.SwarmState, push_active, pull_active,
-            Engine.Audio.bass, Engine.Audio.mid, Engine.Audio.treble
-        )
-        -- Tell Rasterizer to draw the GPU's finished Ping/Pong buffer (-1)
-        C_Bridge.set_active_buffer(-1)
+        -- Tell Compute Shader to read CPU data. 
+        C_Bridge.set_compute_push_constants(dt, Engine.Time, Engine.SwarmState, push_active, pull_active)
 
+        C_Bridge.set_active_buffer(-1)
     elseif Config.physics_mode == "CPU_AVX2" then
-        -- Tell Rasterizer to draw the raw ReBAR CPU buffer directly (2)
-        -- main.c uses frameIndex to natively pick SwarmCPU_A or SwarmCPU_B!
         C_Bridge.set_active_buffer(2)
     end
 
-    -- Update Camera & Matrices (Cleaned up duplicate calls!)
     camera_math.apply_movement(cam_state, dt)
     camera_math.build_matrix(cam_state, Engine.vk_swapchain.extent.width, Engine.vk_swapchain.extent.height)
-
-    -- The clean, stable way!
     C_Bridge.setCameraMatrix(unpack(cam_state.mat))
 
     C_Bridge.set_draw_count(Engine.DrawCount)
@@ -313,10 +240,10 @@ function love_mousemoved(x, y, dx, dy)
 end
 
 function love_keypressed(key)
-    if key == 256 then -- Escape
+    if key == 256 then
         print("[LUA] Escape detected. Signaling C to stop the loop...")
         C_Bridge.signal_quit()
-    elseif key == 72 then -- 'H' Key
+    elseif key == 72 then
         if Config.physics_mode == "HYBRID" then
             Config.physics_mode = "CPU_AVX2"
             print("[ENGINE] Mode Swapped: PURE CPU (Raw Smale's Paradox)")
@@ -332,19 +259,14 @@ function love_quit()
     local device = Engine.vk_context.device
     vk.vkDeviceWaitIdle(device)
 
-    -- 1. Pipelines & Swapchain first
     graphics_pipeline.Destroy(vk, Engine.vk_context, Engine.vk_graphics)
     compute_pipeline.Destroy(vk, Engine.vk_context, Engine.vk_compute)
     swapchain.Destroy(vk, Engine.vk_context, Engine.vk_swapchain)
 
-    -- 2. Descriptors
     if descriptors.Destroy then
         descriptors.Destroy(vk, device, Engine.vk_descriptors)
     end
 
-    -- 3. Memory (VRAM Buffers)
     memory.Destroy(vk, Engine.vk_context)
-
-    -- 4. Core (The Device and Instance must be last!)
     vk_core.Destroy(vk, Engine.vk_context)
 end

@@ -551,9 +551,9 @@ static int l_set_compute_push_constants(lua_State* L) {
     g_comp_state = (int)luaL_checkinteger(L, 3);
     g_comp_push  = (int)luaL_checkinteger(L, 4);
     g_comp_pull  = (int)luaL_checkinteger(L, 5);
-    g_comp_bass  = (float)luaL_checknumber(L, 6); // ADDED
-    g_comp_mid   = (float)luaL_checknumber(L, 7); // ADDED
-    g_comp_treble= (float)luaL_checknumber(L, 8); // ADDED
+//    g_comp_bass  = (float)luaL_checknumber(L, 6); // ADDED
+//    g_comp_mid   = (float)luaL_checknumber(L, 7); // ADDED
+//    g_comp_treble= (float)luaL_checknumber(L, 8); // ADDED
     return 0;
 }
 // [BRIDGE] Force Active Draw Buffer (For AVX2 In-Place Updates)

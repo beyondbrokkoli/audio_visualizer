@@ -72,7 +72,7 @@ ffi.cdef[[
     void vmath_bind_vulkan_buffers(void* write_target, void* cpu_past, void* gpu_past);
     void vmath_bind_indirect_buffer(void* draw_cmd_buffer);
     void vmath_seed_swarm(int particle_count);
-    void vmath_step_swarm(int particle_count, float time, float dt, int state, int push_active, int pull_active, float bass, float mid, float treble);
+    void vmath_step_swarm(int particle_count, float time, float dt, int state, int push_active, int pull_active);
     void vmath_init_thread_pool();
     void vmath_shutdown_thread_pool();
     typedef struct { float bass, mid, treble; int has_new_data; } AudioState;
