@@ -1,0 +1,141 @@
+$ ./swarm_gpu.exe
+[BOOT] Starting Naked Bootloader...
+[DEBUG PROXY] Infecting module: memory
+[DEBUG PROXY] Infecting module: descriptors
+[DEBUG PROXY] Infecting module: swapchain
+[DEBUG PROXY] Infecting module: graphics_pipeline
+[DEBUG PROXY] Infecting module: compute_pipeline
+[LUA] Booting VibeEngine...
+[LUA] Initializing Vulkan Core...
+[LUA] Vulkan Instance Created!
+[BOOT] Validation Layer Enforcer injected successfully.
+[LUA] Window Surface Linked!
+[LUA] Hardware GPU Selected!
+[LUA] Logical Device Created!
+[DEBUG] Device Pointer in core:         cdata<struct VkDevice_T *>: 0x021fcff20f68
+[MEMORY] Initializing Unified Memory Manager...
+[MEMORY] ReBAR Supported! Streaming directly to VRAM.
+[MEMORY] Allocated & Mapped VRAM Buffer: SwarmCPU_A
+[MEMORY] ReBAR Supported! Streaming directly to VRAM.
+[MEMORY] Allocated & Mapped VRAM Buffer: SwarmCPU_B
+[MEMORY] ReBAR Supported! Streaming directly to VRAM.
+[MEMORY] Allocated & Mapped VRAM Buffer: SwarmPing
+[MEMORY] ReBAR Supported! Streaming directly to VRAM.
+[MEMORY] Allocated & Mapped VRAM Buffer: SwarmPong
+[MEMORY] ReBAR Supported! Streaming directly to VRAM.
+[MEMORY] Allocated & Mapped VRAM Buffer: Cage
+[MEMORY] Allocating 64-byte Aligned SoA CPU Memory...
+[PROFILER] memory.Init took 15.000 ms
+[DESCRIPTORS] Wiring Asynchronous Tandem Rendering Sets...
+[DESCRIPTORS] Asynchronous Tandem Rendering Sets successfully wired!
+[PROFILER] descriptors.Init took 1.000 ms
+[REBUILD] Building Swapchain and Pipelines...
+[SWAPCHAIN] Building the display chain...
+[SWAPCHAIN] Created successfully with 3 images!
+[PROFILER] swapchain.Init took 53.000 ms
+[GRAPHICS] Building Depth Buffer and Shader Modules...
+[GRAPHICS] Depth Buffer and Shader Modules Ready.
+[GRAPHICS] Graphics Pipeline Successfully Compiled!
+[PROFILER] graphics_pipeline.Init took 8.000 ms
+[COMPUTE] Compiling Swarm Intelligence...
+[COMPUTE] Swarm Pipeline Ready!
+[PROFILER] compute_pipeline.Init took 1.000 ms
+[C BRIDGE] Rebuilt VkDevice: 0000021fcff20f68
+[C BRIDGE] Quad GPU Buffers safely locked.
+[INIT] VRAM Seeded with 1.0M Particles.
+[NETWORK] Hosting UDP on port 1337
+[INIT] AVX2 Thread Pool Online.
+[INIT] Mouse Captured. Delta-reporting active.
+[BOOT] Entering Main Loop...
+[C DEBUG] 0. Extracting raw AMD driver functions...
+[C DEBUG] 1. Creating Command Pool...
+[C DEBUG] 2. Allocating Command Buffers...
+[C DEBUG] 3. Creating Sync Objects...
+[C DEBUG] 4. Launching the Render Loop!
+AUDIO DATA:     0
+AUDIO DATA:     0.2
+AUDIO DATA:     0.391
+AUDIO DATA:     0.567
+AUDIO DATA:     0.72
+AUDIO DATA:     0.844
+AUDIO DATA:     0.934
+AUDIO DATA:     0.987
+AUDIO DATA:     0.999
+AUDIO DATA:     0.972
+AUDIO DATA:     0.905
+AUDIO DATA:     0.802
+AUDIO DATA:     0.666
+AUDIO DATA:     0.504
+AUDIO DATA:     0.321
+AUDIO DATA:     0.125
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0.15
+AUDIO DATA:     0.345
+AUDIO DATA:     0.525
+AUDIO DATA:     0.685
+AUDIO DATA:     0.816
+AUDIO DATA:     0.915
+AUDIO DATA:     0.977
+AUDIO DATA:     1
+AUDIO DATA:     0.982
+AUDIO DATA:     0.925
+AUDIO DATA:     0.831
+AUDIO DATA:     0.703
+AUDIO DATA:     0.546
+AUDIO DATA:     0.368
+AUDIO DATA:     0.175
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0.1
+AUDIO DATA:     0.297
+AUDIO DATA:     0.482
+AUDIO DATA:     0.647
+AUDIO DATA:     0.786
+AUDIO DATA:     0.894
+AUDIO DATA:     0.965
+AUDIO DATA:     0.998
+AUDIO DATA:     0.99
+AUDIO DATA:     0.943
+AUDIO DATA:     0.858
+AUDIO DATA:     0.738
+AUDIO DATA:     0.588
+AUDIO DATA:     0.414
+AUDIO DATA:     0.224
+AUDIO DATA:     0.025
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
+AUDIO DATA:     0
