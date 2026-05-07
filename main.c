@@ -780,7 +780,7 @@ int main() {
 
     printf("[C DEBUG] 4. Launching the Render Loop!\n"); fflush(stdout);
 
-// ========================================================
+    // ========================================================
     // THE RENDER LOOP (The Heartbeat)
     // ========================================================
     double last_time = glfwGetTime();
@@ -815,7 +815,7 @@ int main() {
 
         // If Lua is busy rebuilding the engine during a resize, skip rendering.
         if (!can_render) {
-            continue; 
+            continue;
         }
 
         // 4. Acquire the image safely
@@ -848,11 +848,19 @@ int main() {
         pfn_vkBeginCommandBuffer(cmd, &beginInfo);
 
         // ========================================================
-        // PRE-PASS: RESOLVE PING-PONG BUFFERS & ZERO THE COUNTER
+        // PRE-PASS: RESOLVE PING-PONG BUFFERS & FORMAT THE COMMAND
         // ========================================================
-        // currentFrame is already defined at the top of the loop (frameIndex % MAX_FRAMES_IN_FLIGHT)
         void* current_mapped_cmd = (currentFrame == 0) ? g_mapped_draw_cmd_A : g_mapped_draw_cmd_B;
         VkBuffer current_buf_cmd = (currentFrame == 0) ? g_buf_draw_cmd_A : g_buf_draw_cmd_B;
+
+        // CRITICAL FIX: We must format the entire 16-byte struct, not just the instance counter!
+        if (current_mapped_cmd) {
+            uint32_t* draw_data = (uint32_t*)current_mapped_cmd;
+            draw_data[0] = g_vertex_count; // vertexCount (Stop drawing garbage!)
+            draw_data[1] = 0;              // instanceCount (GPU Compute will atomicAdd this)
+            draw_data[2] = 0;              // firstVertex
+            draw_data[3] = 0;              // firstInstance
+        }
 
         // We manually reset the instanceCount to 0 so the GPU can atomicAdd from scratch!
         if (current_mapped_cmd) {
@@ -991,20 +999,21 @@ int main() {
         // ========================================================
         // LAYER 1: THE CPU AVX2 SWARM (The Core Geometry)
         // ========================================================
-        VkBuffer cpuBuffer = (frameIndex % 2 == 0) ? g_buf_swarm_cpu_A : g_buf_swarm_cpu_B;
+        // CRITICAL FIX: Perfect Double Buffering. 
+        // If currentFrame == 0, Lua is actively writing to A. So Vulkan MUST read from B!
+        VkBuffer cpuBuffer = (currentFrame == 0) ? g_buf_swarm_cpu_B : g_buf_swarm_cpu_A;
         pfn_vkCmdBindVertexBuffers(cmd, 0, 1, &cpuBuffer, offsets);
         
-        // We know exactly how many CPU particles there are. Draw them directly!
         pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0); 
 
         // ========================================================
-        // LAYER 2: THE GPU AUTONOMOUS METEORS (The Magic Handoff)
+        // LAYER 2: THE GPU AUTONOMOUS METEORS (The Indirect Layer)
         // ========================================================
-        VkBuffer gpuBuffer = (frameIndex % 2 == 0) ? g_buf_swarm_A : g_buf_swarm_B; // Ping/Pong
+        // (Keep this exactly as it is. Compute wrote to the current frame's buffer 
+        //  before the barrier, so reading from the current frame is correct here).
+        VkBuffer gpuBuffer = (currentFrame == 0) ? g_buf_swarm_A : g_buf_swarm_B; 
         pfn_vkCmdBindVertexBuffers(cmd, 0, 1, &gpuBuffer, offsets);
         
-        // We have NO IDEA how many meteors the GPU spawned. 
-        // Let the GPU dictate its own draw count!
         pfn_vkCmdDrawIndirect(cmd, current_buf_cmd, 0, 1, 16);
 
         pfn_vkCmdEndRendering(cmd);
