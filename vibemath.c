@@ -164,7 +164,17 @@ static inline __m256 fast_trig_noise_avx(__m256 nx, __m256 ny, __m256 nz, __m256
     return _mm256_mul_ps(_mm256_add_ps(out, oct2), _mm256_set1_ps(0.25f));
 }
 
-#define APPLY_SPRING_PHYSICS() \
+// THE OVERDRAW KILLER:
+// We use the seed (v_s) to generate a unique 120-unit offset for EVERY particle.
+// No two particles can ever map to the exact same pixel again!
+#define APPLY_SPRING_PHYSICS(stiffness) \
+    __m256 v_scatter_x = _mm256_mul_ps(fast_sin_avx(_mm256_mul_ps(v_s, _mm256_set1_ps(1234.5f))), _mm256_set1_ps(120.0f)); \
+    __m256 v_scatter_y = _mm256_mul_ps(fast_cos_avx(_mm256_mul_ps(v_s, _mm256_set1_ps(5432.1f))), _mm256_set1_ps(120.0f)); \
+    __m256 v_scatter_z = _mm256_mul_ps(fast_sin_avx(_mm256_mul_ps(v_s, _mm256_set1_ps(9876.5f))), _mm256_set1_ps(120.0f)); \
+    v_tx = _mm256_add_ps(v_tx, v_scatter_x); \
+    v_ty = _mm256_add_ps(v_ty, v_scatter_y); \
+    v_tz = _mm256_add_ps(v_tz, v_scatter_z); \
+    __m256 v_k = _mm256_set1_ps(stiffness * dt); \
     __m256 v_px = _mm256_loadu_ps(&px[i]), v_py = _mm256_loadu_ps(&py[i]), v_pz = _mm256_loadu_ps(&pz[i]); \
     __m256 v_vx = _mm256_loadu_ps(&vx[i]), v_vy = _mm256_loadu_ps(&vy[i]), v_vz = _mm256_loadu_ps(&vz[i]); \
     v_vx = _mm256_mul_ps(_mm256_fmadd_ps(_mm256_sub_ps(v_tx, v_px), v_k, v_vx), v_damp); \
@@ -188,7 +198,7 @@ EXPORT void vmath_swarm_update_velocities(int count, float* px_in, float* py_in,
 }
 
 // NOTE THE NEW "SCALE" PARAMETERS ON ALL SHAPES!
-EXPORT void vmath_swarm_bundle(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scale) {
+EXPORT void vmath_swarm_bundle(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scale, float stiffness) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_r = _mm256_set1_ps((2000.0f + 400.0f * sinf(time * 6.0f)) * scale);
     __m256 v_golden = _mm256_set1_ps(2.39996323f);
@@ -208,11 +218,11 @@ EXPORT void vmath_swarm_bundle(int count, float* px, float* py, float* pz, float
         __m256 v_ty = _mm256_fmadd_ps(v_r, v_cos_theta, v_cy);
         __m256 v_tz = _mm256_fmadd_ps(v_r, _mm256_mul_ps(v_sin_theta, fast_sin_avx(v_phi)), v_cz);
 
-        APPLY_SPRING_PHYSICS();
+        APPLY_SPRING_PHYSICS(stiffness);
     }
 }
 
-EXPORT void vmath_swarm_galaxy(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scale) {
+EXPORT void vmath_swarm_galaxy(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scalee, float stiffness) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_time_ang = _mm256_set1_ps(time * 1.5f), v_time_z = _mm256_set1_ps(time * 3.0f);
     __m256 v_dt = _mm256_set1_ps(dt), v_k = _mm256_set1_ps(4.0f * dt), v_damp = _mm256_set1_ps(0.92f);
@@ -227,10 +237,10 @@ EXPORT void vmath_swarm_galaxy(int count, float* px, float* py, float* pz, float
         __m256 v_ty = _mm256_fmadd_ps(_mm256_set1_ps(800.0f * scale), fast_sin_avx(_mm256_fnmadd_ps(v_time_z, _mm256_set1_ps(1.0f), _mm256_mul_ps(v_s, _mm256_set1_ps(40.0f)))), v_cy);
         __m256 v_tz = _mm256_fmadd_ps(v_r, fast_sin_avx(v_angle), v_cz);
 
-        APPLY_SPRING_PHYSICS();
+        APPLY_SPRING_PHYSICS(stiffness);
     }
 }
-EXPORT void vmath_swarm_tornado(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scale) {
+EXPORT void vmath_swarm_tornado(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scalee, float stiffness) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_time_ang = _mm256_set1_ps(time * 4.0f);
     __m256 v_dt = _mm256_set1_ps(dt), v_k = _mm256_set1_ps(4.0f * dt), v_damp = _mm256_set1_ps(0.92f);
@@ -246,10 +256,10 @@ EXPORT void vmath_swarm_tornado(int count, float* px, float* py, float* pz, floa
         __m256 v_ty = _mm256_add_ps(v_cy, v_height);
         __m256 v_tz = _mm256_fmadd_ps(v_r, fast_sin_avx(v_angle), v_cz);
 
-        APPLY_SPRING_PHYSICS();
+        APPLY_SPRING_PHYSICS(stiffness);
     }
 }
-EXPORT void vmath_swarm_gyroscope(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scale) {
+EXPORT void vmath_swarm_gyroscope(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scalee, float stiffness) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_r = _mm256_set1_ps(7000.0f * scale);
     __m256 v_time_ang = _mm256_set1_ps(time * 2.5f);
@@ -277,19 +287,19 @@ EXPORT void vmath_swarm_gyroscope(int count, float* px, float* py, float* pz, fl
         __m256 v_ty = _mm256_blendv_ps(r2_y, _mm256_blendv_ps(r1_y, r0_y, m0), _mm256_or_ps(m0, m1));
         __m256 v_tz = _mm256_blendv_ps(r2_z, _mm256_blendv_ps(r1_z, r0_z, m0), _mm256_or_ps(m0, m1));
 
-        APPLY_SPRING_PHYSICS();
+        APPLY_SPRING_PHYSICS(stiffness);
     }
 }
-EXPORT void vmath_swarm_metal(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float noise_blend, float scale) {
+EXPORT void vmath_swarm_metal(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float noise_blend, float scalee, float stiffness) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_time = _mm256_set1_ps(time);
     __m256 v_blend = _mm256_set1_ps(noise_blend);
     __m256 v_radius = _mm256_set1_ps(4000.0f * scale);
-    __m256 v_max_disp = _mm256_set1_ps(3000.0f * scale); 
+    __m256 v_max_disp = _mm256_set1_ps(3000.0f * scale);
 
     __m256 v_dt = _mm256_set1_ps(dt);
-    __m256 v_k = _mm256_set1_ps(4.0f * dt); 
-    __m256 v_damp = _mm256_set1_ps(0.92f);  
+    __m256 v_k = _mm256_set1_ps(4.0f * dt);
+    __m256 v_damp = _mm256_set1_ps(0.92f);
 
     int i = 0;
     for (; i <= count - 8; i += 8) {
@@ -310,10 +320,10 @@ EXPORT void vmath_swarm_metal(int count, float* px, float* py, float* pz, float*
         __m256 v_ty = _mm256_fmadd_ps(v_sy, v_final_r, v_cy);
         __m256 v_tz = _mm256_fmadd_ps(v_sz, v_final_r, v_cz);
 
-        APPLY_SPRING_PHYSICS();
+        APPLY_SPRING_PHYSICS(stiffness);
     }
 }
-EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float blend, float scale) {
+EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float blend, float scalee, float stiffness) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_base_radius = _mm256_set1_ps(4000.0f * scale);
 
@@ -330,7 +340,7 @@ EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float
     __m256 v_2_0 = _mm256_set1_ps(2.0f);
     __m256 v_3_0 = _mm256_set1_ps(3.0f);
     __m256 v_pi = _mm256_set1_ps(M_PI);
-    __m256 v_phi_mul = _mm256_set1_ps(M_PI * 2.0f * 100.0f); 
+    __m256 v_phi_mul = _mm256_set1_ps(M_PI * 2.0f * 100.0f);
 
     __m256 v_dt = _mm256_set1_ps(dt);
     __m256 v_k = _mm256_set1_ps(4.0f * dt);
@@ -368,7 +378,7 @@ EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float
 
         __m256 v_ty = _mm256_add_ps(v_cy, _mm256_fmadd_ps(v_ny, v_r_main, v_ty_offset));
 
-        APPLY_SPRING_PHYSICS();
+        APPLY_SPRING_PHYSICS(stiffness);
     }
 }
 EXPORT void vmath_swarm_apply_explosion(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float ex, float ey, float ez, float force, float radius) {
@@ -378,21 +388,24 @@ EXPORT void vmath_swarm_apply_explosion(int count, float* px, float* py, float* 
     __m256 v_force = _mm256_set1_ps(force);
     __m256 v_inv_radius = _mm256_set1_ps(1.0f / radius);
 
-    int i = 0; 
+    int i = 0;
     for (; i <= count - 8; i += 8) {
         __m256 dx = _mm256_sub_ps(_mm256_loadu_ps(&px[i]), v_ex);
         __m256 dy = _mm256_sub_ps(_mm256_loadu_ps(&py[i]), v_ey);
         __m256 dz = _mm256_sub_ps(_mm256_loadu_ps(&pz[i]), v_ez);
 
+        // In vmath_swarm_apply_explosion:
         __m256 dist2 = _mm256_fmadd_ps(dz, dz, _mm256_fmadd_ps(dy, dy, _mm256_mul_ps(dx, dx)));
 
-        __m256 mask = _mm256_and_ps(_mm256_cmp_ps(dist2, v_r2, _CMP_LT_OQ), _mm256_cmp_ps(dist2, v_1, _CMP_GT_OQ));
+        // THE FIX: Ignore particles closer than r=100 (10000.0f) to prevent singularity!
+        __m256 v_min_r2 = _mm256_set1_ps(10000.0f);
+        __m256 mask = _mm256_and_ps(_mm256_cmp_ps(dist2, v_r2, _CMP_LT_OQ), _mm256_cmp_ps(dist2, v_min_r2, _CMP_GT_OQ));
 
         if (!_mm256_testz_ps(mask, mask)) {
-            __m256 inv_dist = _mm256_rsqrt_ps(dist2); 
+            __m256 inv_dist = _mm256_rsqrt_ps(dist2);
             __m256 dist = _mm256_mul_ps(dist2, inv_dist);
             __m256 f = _mm256_mul_ps(v_force, _mm256_sub_ps(v_1, _mm256_mul_ps(dist, v_inv_radius)));
-            __m256 f_inv_dist = _mm256_mul_ps(f, inv_dist); 
+            __m256 f_inv_dist = _mm256_mul_ps(f, inv_dist);
 
             __m256 v_vx = _mm256_loadu_ps(&vx[i]);
             __m256 v_vy = _mm256_loadu_ps(&vy[i]);
@@ -474,14 +487,15 @@ THREAD_FUNC vmath_swarm_worker(void* arg) {
             // ==========================================
             // THE VJ CHOREOGRAPHY (AUDIO INJECTION)
             // ==========================================
-            // 1. Time Modulation (Mids)
-            float audio_time = c_time * (1.0f + (p->mid * 1.5f)); 
-
-            // 2. The Lerping Technique (Start fast, decay slow!)
-            float bass_punch = p->bass * p->bass * p->bass; 
-            
-            // 3. Dynamic Expansion (Shapes gracefully expand up to 1.6x size)
+            float audio_time = c_time * (1.0f + (p->mid * 1.5f));
+            float bass_punch = p->bass * p->bass * p->bass;
             float base_scale = 1.0f + (bass_punch * 0.6f);
+
+            // THE ZERO-G HANG TIME MAGIC!
+            // Normal stiffness is 4.0. When the kick hits (bass_punch = 1.0),
+            // stiffness drops to 0.4 (Free fall!). The particles float in the shattered state.
+            // As the sound decays, the spring pulls tight again and they reassemble.
+            float dynamic_stiffness = 4.0f * (1.0f - (bass_punch * 0.9f));
 
             // 4. THE HIGHLIGHT REEL (Specific shape reactions!)
             // Gyroscope (4): The Orthogonal Black Hole
@@ -506,12 +520,12 @@ THREAD_FUNC vmath_swarm_worker(void* arg) {
             }
 
             switch (p->state) {
-                case 1: vmath_swarm_bundle(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, base_scale); break;
-                case 2: vmath_swarm_galaxy(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, base_scale); break;
-                case 3: vmath_swarm_tornado(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, base_scale); break;
-                case 4: vmath_swarm_gyroscope(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, base_scale); break;
-                case 5: vmath_swarm_metal(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, mem->Swarm_MetalBlend, base_scale); break;
-                case 6: vmath_swarm_smales(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, mem->Swarm_ParadoxBlend, base_scale); break;
+                case 1: vmath_swarm_bundle(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, base_scale, dynamic_stiffness); break;
+                case 2: vmath_swarm_galaxy(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, base_scale, dynamic_stiffness); break;
+                case 3: vmath_swarm_tornado(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, base_scale, dynamic_stiffness); break;
+                case 4: vmath_swarm_gyroscope(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, base_scale, dynamic_stiffness); break;
+                case 5: vmath_swarm_metal(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, mem->Swarm_MetalBlend, base_scale, dynamic_stiffness); break;
+                case 6: vmath_swarm_smales(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, mem->Swarm_ParadoxBlend, base_scale, dynamic_stiffness); break;
             }
 
             for (int i = start_idx; i < end_idx; i++) {

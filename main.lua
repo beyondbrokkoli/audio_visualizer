@@ -199,27 +199,33 @@ function love_update(dt)
     end
 
     -- ====================================================
-    -- THE AUTO-VJ CHOREOGRAPHER (Beat Skipper)
+    -- THE AUTO-VJ CHOREOGRAPHER (Poly-Rhythmic Skipper)
     -- ====================================================
     local is_beat_drop = false
-    
+
+    -- Initialize our rhythm counters if they don't exist
+    Engine.Audio.target_beats = Engine.Audio.target_beats or 16
+    Engine.Audio.current_beat = Engine.Audio.current_beat or 0
+
     -- Detect a hard transient (Bass spikes past 0.85)
     if Engine.Audio.bass > 0.85 and Engine.Audio.prev_bass <= 0.85 then
         is_beat_drop = true
-        Engine.Audio.beat_counter = (Engine.Audio.beat_counter or 0) + 1
-        
-        -- THE FIX: Skip beats! Only shift the shape every 8th kick drum.
-        -- This gives the Smale's Paradox and Spiral plenty of time to form!
-        if Engine.Audio.beat_counter % 8 == 0 then
+        Engine.Audio.current_beat = Engine.Audio.current_beat + 1
+
+        -- When we hit the target, shift the shape and roll the dice for the next one!
+        if Engine.Audio.current_beat >= Engine.Audio.target_beats then
             Engine.SwarmState = Engine.SwarmState + 1
             if Engine.SwarmState > 6 then Engine.SwarmState = 0 end
-            print("[AUTO-VJ] Drop! Matrix Shifted to State: " .. Engine.SwarmState)
+
+            -- Randomize how long this new shape gets to express itself (8, 16, 24, or 32 beats)
+            local phase_lengths = {8, 16, 24, 32}
+            Engine.Audio.target_beats = phase_lengths[math.random(1, #phase_lengths)]
+            Engine.Audio.current_beat = 0
+
+            print("[AUTO-VJ] Form Shift: State " .. Engine.SwarmState .. " | Expressing for " .. Engine.Audio.target_beats .. " beats.")
         end
     end
-    
-    -- We removed the auto "pull_active/push_active" from Lua!
-    -- We are moving all the explosion highlights down into the AVX2 C-Code
-    -- so they can trigger conditionally based on the shape!
+
     local push_active = love.mouse.isDown(1) and 1 or 0
     local pull_active = love.mouse.isDown(2) and 1 or 0
 
