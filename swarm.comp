@@ -30,7 +30,9 @@ uint pcg_hash(uint seed) {
 
 void main() {
     uint id = gl_GlobalInvocationID.x;
-    if (id >= 1000000) return;
+    
+    // GUARDRAIL: Match this to g_draw_count in main.c (e.g., 250000 or 1000000)
+    if (id >= 250000) return;
 
     vec3 cpuPos = vec3(inParticles[id].x, inParticles[id].y, inParticles[id].z);
     vec3 gpuPastPos = vec3(pastParticles[id].x, pastParticles[id].y, pastParticles[id].z);
@@ -51,7 +53,6 @@ void main() {
     }
     else if (pc.pull == 1) {
         // AUDIO REACTIVE SINGULARITY
-        // Bass expands the chaotic sphere wildly!
         float currentRadius = 2000.0 + (pc.bass * 6000.0);
         vec3 targetSphere = center + normalize(pos - center) * (rand1 * currentRadius);
         pos = mix(pos, targetSphere, 0.1);
@@ -60,8 +61,30 @@ void main() {
         // GPU just handles the Treble elasticity and Mid turbulence now!
         float snap_speed = mix(0.02, 0.15, pc.treble);
         vec3 audioWobble = inferredVelocity * (0.1 + (pc.mid * 0.5));
-        
+
         pos = mix(pos, cpuPos, snap_speed) + audioWobble;
+    }
+
+    // ====================================================
+    // THE QUANTUM CULL: Audio-Reactive Spawning
+    // ====================================================
+    // Example: Particles organically "evaporate" if they are too still
+    // while the high-hats (treble) are quiet.
+    bool isAlive = true;
+    
+    // If the particle has low momentum AND the music is quiet, cull it!
+    if (length(inferredVelocity) < 0.5 && pc.treble < 0.2) {
+        // Randomize the evaporation so it looks like a dissolving cloud
+        if (rand1 > pc.mid) {
+            isAlive = false;
+        }
+    }
+
+    if (!isAlive) {
+        // Teleport the particle infinitely far away to bypass the Rasterizer!
+        // 0.0/0.0 creates a NaN (Not a Number). When the Vertex Shader multiplies
+        // NaN by the Projection Matrix, the triangle disappears instantly!
+        pos = vec3(0.0 / 0.0); 
     }
 
     outParticles[id].x = pos.x;

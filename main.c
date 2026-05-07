@@ -1020,14 +1020,17 @@ int main() {
         // ========================================================
         // THE MAGIC HANDOFF: Let the GPU dictate its own draw count!
         // ========================================================
-        if (g_force_draw_buffer == -1) {
+        //if (g_force_draw_buffer == -1) {
             // HYBRID MODE: Execute the Indirect Command Buffer we just filled in Compute!
-            pfn_vkCmdDrawIndirect(cmd, current_buf_cmd, 0, 1, 16);
-        } else {
+            //pfn_vkCmdDrawIndirect(cmd, current_buf_cmd, 0, 1, 16);
+        //} else {
             // PURE CPU MODE: Fallback to the manual Lua draw count
-            pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0);
-        }
-
+            //pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0);
+        //}
+        // ========================================================
+        // THE MAGIC HANDOFF: Draw exactly what the CPU allocated!
+        // ========================================================
+        pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0);
         pfn_vkCmdEndRendering(cmd);
 
         imgBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
