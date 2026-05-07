@@ -94,7 +94,7 @@ void *g_mapped_draw_cmd_A, *g_mapped_draw_cmd_B;
 // ========================================================
 int g_force_draw_buffer = -1; // -1 = GPU Ping-Pong, 0 = Force SwarmA, 1 = Force SwarmB
 uint32_t g_draw_count = 1000000;
-uint32_t g_vertex_count = 12; // Default to Tetrahedron
+uint32_t g_vertex_count = 24; // Default to Tetrahedron
 
 // Compute Shader Push Constants
 float g_comp_dt = 0.016f;

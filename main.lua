@@ -202,7 +202,7 @@ function love_update(dt)
     dt = math.min(dt, 0.033)
     Engine.Time = Engine.Time + dt
     frame_count = frame_count + 1
--- ====================================================
+    -- ====================================================
     -- INGEST PYTHON AUDIO STREAM (Zero-Allocation Memory Bridge)
     -- ====================================================
     Engine.Audio.prev_bass = Engine.Audio.bass
@@ -301,7 +301,7 @@ function love_update(dt)
     C_Bridge.setCameraMatrix(unpack(cam_state.mat))
 
     C_Bridge.set_draw_count(Engine.DrawCount)
-    C_Bridge.set_vertex_count(8)
+    C_Bridge.set_vertex_count(24)
     return true
 end
 
