@@ -115,6 +115,9 @@ typedef struct {
     int push_active;
     int pull_active;
     int particle_count; // <--- ADD THIS!
+    float bass;   // <-- ADDED
+    float mid;    // <-- ADDED
+    float treble; // <-- ADDED
 } SwarmWorkerPayload;
 
 SwarmWorkerPayload g_worker_payload;
@@ -552,7 +555,7 @@ THREAD_FUNC vmath_swarm_worker(void* arg) {
         float c_dt = p->dt;
 
         // 2. THE PURE HOT LOOP
-        if (g_cpu_write_target && mem && p->particle_count > 0) { 
+        if (g_cpu_write_target && mem && p->particle_count > 0) {
             int total_particles = p->particle_count;
             int chunk_size = total_particles / NUM_WORKERS;
 
@@ -562,7 +565,7 @@ THREAD_FUNC vmath_swarm_worker(void* arg) {
             float size = 20.0f;
 
             // ==========================================
-            // PHASE 1: PHYSICS HOT LOOP (Queue Annihilated)
+            // PHASE 1: PHYSICS HOT LOOP
             // ==========================================
             // Always apply base velocities first
             vmath_swarm_update_velocities(chunk_count,
@@ -580,22 +583,32 @@ THREAD_FUNC vmath_swarm_worker(void* arg) {
                 vmath_swarm_apply_explosion(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, 0, 5000, 0, -4000000.0f * c_dt, 20000.0f);
             }
 
-            // Handle Swarm Formations
-            switch (p->state) {
-                case 1: vmath_swarm_bundle(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, c_time, c_dt); break;
-                case 2: vmath_swarm_galaxy(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, c_time, c_dt); break;
-                case 3: vmath_swarm_tornado(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, c_time, c_dt); break;
-                case 4: vmath_swarm_gyroscope(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, c_time, c_dt); break;
-                case 5: vmath_swarm_metal(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, c_time, c_dt, mem->Swarm_MetalBlend); break;
-                case 6: vmath_swarm_smales(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, c_time, c_dt, mem->Swarm_ParadoxBlend); break;
-            }
-            
             // ==========================================
-            // PHASE 2: TRANSLATION HOT LOOP 
+            // AUDIO PHYSICS INJECTION
+            // ==========================================
+            // Mids speed up the local time (faster rotation on hi-hats/snares)
+            float audio_time = c_time * (1.0f + (p->mid * 2.0f));
+
+            // Bass scales the macro-geometry up to 2x size!
+            // (You can pass this into vmath_swarm_* functions later to physically expand the shapes)
+            float base_scale = 1.0f + (p->bass * 1.0f);
+
+            // Handle Swarm Formations (Notice audio_time replaces c_time!)
+            switch (p->state) {
+                case 1: vmath_swarm_bundle(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt); break;
+                case 2: vmath_swarm_galaxy(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt); break;
+                case 3: vmath_swarm_tornado(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt); break;
+                case 4: vmath_swarm_gyroscope(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt); break;
+                case 5: vmath_swarm_metal(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, mem->Swarm_MetalBlend); break;
+                case 6: vmath_swarm_smales(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, mem->Swarm_ParadoxBlend); break;
+            }
+
+            // ==========================================
+            // PHASE 2: TRANSLATION HOT LOOP
             // ==========================================
             for (int i = start_idx; i < end_idx; i++) {
                 // Write into the dedicated write target for this frame
-                g_cpu_write_target[i] = (VertexAoS){ 
+                g_cpu_write_target[i] = (VertexAoS){
                     mem->Swarm_PX[0][i],
                     mem->Swarm_PY[0][i],
                     mem->Swarm_PZ[0][i],
@@ -614,17 +627,20 @@ THREAD_FUNC vmath_swarm_worker(void* arg) {
     return THREAD_RETURN_VAL;
 }
 
-EXPORT void vmath_step_swarm(int particle_count, float time, float dt, int state, int push_active, int pull_active) {
+EXPORT void vmath_step_swarm(int particle_count, float time, float dt, int state, int push_active, int pull_active, float bass, float mid, float treble) {
     if (!g_mem) return;
 
     // 1. SETUP CLEAN PAYLOAD
     g_worker_payload.mem = g_mem;
-    g_worker_payload.particle_count = particle_count; // Store it!
+    g_worker_payload.particle_count = particle_count;
     g_worker_payload.time = time;
     g_worker_payload.dt = dt;
     g_worker_payload.state = state;
     g_worker_payload.push_active = push_active;
     g_worker_payload.pull_active = pull_active;
+    g_worker_payload.bass = bass;     // <-- ADDED
+    g_worker_payload.mid = mid;       // <-- ADDED
+    g_worker_payload.treble = treble; // <-- ADDED
 
     // 2. WAKE UP ALL 4 WORKERS
     for (int b = 0; b < NUM_WORKERS; b++) {

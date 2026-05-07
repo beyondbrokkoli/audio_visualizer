@@ -183,30 +183,33 @@ function love_update(dt)
     dt = math.min(dt, 0.033)
     Engine.Time = Engine.Time + dt
     frame_count = frame_count + 1
-    -- ====================================================
+-- ====================================================
     -- INGEST PYTHON AUDIO STREAM (Non-Blocking)
     -- ====================================================
+    Engine.Audio.prev_bass = Engine.Audio.bass or 0.0
+
     local msg = C_Bridge.net_poll()
     if msg then
-        -- Fast string parsing: match three comma-separated values
         local b, m, t = msg:match("([^,]+),([^,]+),([^,]+)")
         if b and m and t then
             Engine.Audio.bass = tonumber(b) or 0.0
             Engine.Audio.mid = tonumber(m) or 0.0
             Engine.Audio.treble = tonumber(t) or 0.0
-            print("AUDIO DATA:", Engine.Audio.bass)
         end
     end
+
     -- ====================================================
-    -- THE SWARM LOGIC (Restored from Legacy swarm.lua)
+    -- THE AUTO-VJ CHOREOGRAPHER 
     -- ====================================================
-    local space_down = love.keyboard.isDown("space")
-    if space_down and not Engine.SpacePressedLast then
+    local is_beat_drop = false
+    
+    -- Detect a hard transient (Bass spikes past 0.85 suddenly)
+    if Engine.Audio.bass > 0.85 and Engine.Audio.prev_bass <= 0.85 then
+        is_beat_drop = true
         Engine.SwarmState = Engine.SwarmState + 1
         if Engine.SwarmState > 6 then Engine.SwarmState = 0 end
-        print("[STATE] Swarm Matrix Shifted to State: " .. Engine.SwarmState)
+        print("[AUTO-VJ] Heavy Kick! Matrix Shifted to State: " .. Engine.SwarmState)
     end
-    Engine.SpacePressedLast = space_down
 
     -- Smooth Morphing Blends
     if Engine.SwarmState == 0 then Engine.GravityBlend = math.min(1.0, Engine.GravityBlend + dt * 2.0)
@@ -218,9 +221,12 @@ function love_update(dt)
     if Engine.SwarmState == 6 then Engine.ParadoxBlend = math.min(1.0, Engine.ParadoxBlend + dt * 0.5)
     else Engine.ParadoxBlend = math.max(0.0, Engine.ParadoxBlend - dt * 2.0) end
 
-    -- Mouse Inputs
-    local push_active = love.mouse.isDown(1) and 1 or 0
-    local pull_active = love.mouse.isDown(2) and 1 or 0
+    -- AUTO MOUSE INPUTS:
+    -- Explode on the beat drop!
+    local push_active = is_beat_drop and 1 or 0
+
+    -- Implode (pull) when the track gets very quiet (the build-up before a drop)
+    local pull_active = (Engine.Audio.bass < 0.1 and Engine.Audio.mid < 0.1) and 1 or 0
 
     -- ====================================================
     -- THE QUAD-BUFFER TRAFFIC COP (Heterogeneous Feedback)
@@ -236,22 +242,23 @@ function love_update(dt)
     local target_cpu_mapped, past_cpu_mapped, past_gpu_mapped
 
     if active_cpu_idx == 0 then
-        -- EVEN FRAMES (State 0)
         target_cpu_mapped = memory.Mapped["SwarmCPU_A"]
         past_cpu_mapped   = memory.Mapped["SwarmCPU_B"]
         past_gpu_mapped   = memory.Mapped["SwarmPong"]
     else
-        -- ODD FRAMES (State 1)
         target_cpu_mapped = memory.Mapped["SwarmCPU_B"]
         past_cpu_mapped   = memory.Mapped["SwarmCPU_A"]
         past_gpu_mapped   = memory.Mapped["SwarmPing"]
     end
 
-    -- 2. Inject the phase-aware pointers into the C Physics backend
     VibeMath.vmath_bind_vulkan_buffers(target_cpu_mapped, past_cpu_mapped, past_gpu_mapped)
 
-    -- 3. AVX2 Computes the base physics into the target buffer
-    VibeMath.vmath_step_swarm(Engine.DrawCount, Engine.Time, dt, Engine.SwarmState, push_active, pull_active)
+    -- 3. Pass AUDIO to the AVX2 CPU threads! (We are updating this signature next)
+    VibeMath.vmath_step_swarm(
+        Engine.DrawCount, Engine.Time, dt, Engine.SwarmState,
+        push_active, pull_active,
+        Engine.Audio.bass, Engine.Audio.mid, Engine.Audio.treble
+    )
 
     if Config.physics_mode == "HYBRID" then
         -- Tell Compute Shader to read CPU data, add noise, and write to Ping/Pong
