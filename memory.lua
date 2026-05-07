@@ -70,15 +70,22 @@ ffi.cdef[[
     // AVX2 C-Signatures
     void vmath_bind_engine(RenderMemory* mem, CameraState* cam, int* queue);
     void vmath_bind_vulkan_buffers(void* write_target, void* cpu_past, void* gpu_past);
-
+    void vmath_bind_indirect_buffer(void* draw_cmd_buffer);
     void vmath_seed_swarm(int particle_count);
     void vmath_step_swarm(int particle_count, float time, float dt, int state, int push_active, int pull_active, float bass, float mid, float treble);
     void vmath_init_thread_pool();
     void vmath_shutdown_thread_pool();
-
     typedef struct { float bass, mid, treble; int has_new_data; } AudioState;
+
+    // --- VULKAN INDIRECT DRAWING ---
+    typedef struct {
+        uint32_t vertexCount;
+        uint32_t instanceCount;
+        uint32_t firstVertex;
+        uint32_t firstInstance;
+    } VkDrawIndirectCommand;
 ]]
--- 2. Allocate the memory block permanently. 
+-- 2. Allocate the memory block permanently.
 -- The GC will never touch this because we never lose the reference.
 Engine.AudioData = ffi.new("AudioState")
 -- ========================================================================
@@ -176,12 +183,27 @@ function Memory.Init(vulkan_lib, core_state, use_avx2)
     -- CPU Ping-Pong Buffers
     Memory.CreateHostVisibleBuffer("SwarmCPU_A", "GPU_VertexAoS", MAX_OBJS, 160, core_state)
     Memory.CreateHostVisibleBuffer("SwarmCPU_B", "GPU_VertexAoS", MAX_OBJS, 160, core_state)
-    
+
     -- GPU Ping-Pong Buffers
-    Memory.CreateHostVisibleBuffer("SwarmPing", "GPU_VertexAoS", MAX_OBJS, 160, core_state) 
-    Memory.CreateHostVisibleBuffer("SwarmPong", "GPU_VertexAoS", MAX_OBJS, 160, core_state) 
-    
+    Memory.CreateHostVisibleBuffer("SwarmPing", "GPU_VertexAoS", MAX_OBJS, 160, core_state)
+    Memory.CreateHostVisibleBuffer("SwarmPong", "GPU_VertexAoS", MAX_OBJS, 160, core_state)
+
     Memory.CreateHostVisibleBuffer("Cage", "GPU_GlobalCage", 1, 16, core_state)
+
+    -- ========================================================
+    -- THE INDIRECT DRAW COMMAND BUFFER (The 4th USB Port)
+    -- ========================================================
+    -- Usage: 0x0020 (Storage Buffer for Compute) + 0x0100 (Indirect Buffer for Graphics) = 0x0120
+    Memory.CreateHostVisibleBuffer("DrawCmd", "VkDrawIndirectCommand", 1, 0x0120, core_state)
+
+    -- Initialize the default values for our Octahedrons
+    local draw_cmd = ffi.cast("VkDrawIndirectCommand*", Memory.Mapped["DrawCmd"])
+    draw_cmd.vertexCount = 24   -- 24 vertices per particle (Octahedron)
+    draw_cmd.instanceCount = 0  -- GPU will increment this via atomicAdd!
+    draw_cmd.firstVertex = 0
+    draw_cmd.firstInstance = 0
+
+    print("[MEMORY] Allocated & Mapped Dual-Purpose Indirect Draw Buffer.")
 
     -- B. ALLOCATE CPU RAM (Always required for seeding the universe!)
     print("[MEMORY] Allocating 64-byte Aligned SoA CPU Memory...")

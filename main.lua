@@ -130,7 +130,8 @@ function love_load()
         memory.Buffers["SwarmCPU_A"],
         memory.Buffers["SwarmCPU_B"],
         memory.Buffers["SwarmPing"],
-        memory.Buffers["SwarmPong"]
+        memory.Buffers["SwarmPong"],
+        memory.Buffers["DrawCmd"] -- <--- YOU MUST ADD THIS LINE!
     )
 
     -- Build Pipelines & Hand to C
@@ -142,7 +143,8 @@ function love_load()
         ptr2str(memory.Buffers["SwarmCPU_A"]), ptr2str(memory.Buffers["SwarmCPU_B"]),
         ptr2str(memory.Buffers["SwarmPing"]), ptr2str(memory.Buffers["SwarmPong"]),
         ptr2str(memory.Mapped["SwarmCPU_A"]), ptr2str(memory.Mapped["SwarmCPU_B"]),
-        ptr2str(memory.Mapped["SwarmPing"]), ptr2str(memory.Mapped["SwarmPong"])
+        ptr2str(memory.Mapped["SwarmPing"]), ptr2str(memory.Mapped["SwarmPong"]),
+        ptr2str(memory.Buffers["DrawCmd"]), ptr2str(memory.Mapped["DrawCmd"])
     )
 
     -- Bind Buffer A initially to give C a valid target before the first frame.

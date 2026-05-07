@@ -86,6 +86,8 @@ typedef struct {
     int push;
     int pull;
 } ComputePushConstants;
+VkBuffer g_buf_draw_cmd;
+void* g_mapped_draw_cmd; // We need the CPU mapped pointer to reset it!
 // ========================================================
 // HYBRID ENGINE STATE (Managed by Lua)
 // ========================================================
@@ -282,22 +284,26 @@ static int l_set_swapchain_asset(lua_State* L) {
     return 0;
 }
 static int l_submit_buffers(lua_State* L) {
-    if (lua_gettop(L) < 8) {
-        printf("[FATAL] l_submit_buffers expected 8 string arguments!\n");
+    if (lua_gettop(L) < 10) { // INCREASED TO 10
+        printf("[FATAL] l_submit_buffers expected 10 string arguments!\n");
         return 0;
     }
 
     g_buf_swarm_cpu_A = (VkBuffer)strtoull(lua_tostring(L, 1), NULL, 10);
     g_buf_swarm_cpu_B = (VkBuffer)strtoull(lua_tostring(L, 2), NULL, 10);
-    g_buf_swarm_A     = (VkBuffer)strtoull(lua_tostring(L, 3), NULL, 10); // Ping
-    g_buf_swarm_B     = (VkBuffer)strtoull(lua_tostring(L, 4), NULL, 10); // Pong
+    g_buf_swarm_A     = (VkBuffer)strtoull(lua_tostring(L, 3), NULL, 10);
+    g_buf_swarm_B     = (VkBuffer)strtoull(lua_tostring(L, 4), NULL, 10);
 
     g_mapped_swarm_cpu_A = (void*)strtoull(lua_tostring(L, 5), NULL, 10);
     g_mapped_swarm_cpu_B = (void*)strtoull(lua_tostring(L, 6), NULL, 10);
     g_mapped_swarm_A     = (void*)strtoull(lua_tostring(L, 7), NULL, 10);
     g_mapped_swarm_B     = (void*)strtoull(lua_tostring(L, 8), NULL, 10);
 
-    printf("[C BRIDGE] Quad GPU Buffers safely locked.\n");
+    // THE NEW 4TH USB PORT (INDIRECT BUFFER)
+    g_buf_draw_cmd    = (VkBuffer)strtoull(lua_tostring(L, 9), NULL, 10);
+    g_mapped_draw_cmd = (void*)strtoull(lua_tostring(L, 10), NULL, 10);
+
+    printf("[C BRIDGE] Penta GPU Buffers safely locked.\n");
     return 0;
 }
 // [BRIDGE] Set Vertex Count dynamically
@@ -690,6 +696,7 @@ int main() {
     LOAD_VK(vkCmdSetScissor);
     LOAD_VK(vkCmdBindVertexBuffers);
     LOAD_VK(vkCmdDraw);
+    LOAD_VK(vkCmdDrawIndirect); // <--- ADD IT RIGHT HERE!
     LOAD_VK(vkEndCommandBuffer);
     LOAD_VK(vkQueueSubmit);
     LOAD_VK(vkQueuePresentKHR);
@@ -846,7 +853,14 @@ int main() {
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         pfn_vkBeginCommandBuffer(cmd, &beginInfo);
-
+        // ========================================================
+        // PRE-PASS: ZERO THE GPU COUNTER
+        // ========================================================
+        // We manually reset the instanceCount to 0 so the GPU can atomicAdd from scratch!
+        if (g_mapped_draw_cmd) {
+            uint32_t* draw_data = (uint32_t*)g_mapped_draw_cmd;
+            draw_data[1] = 0; // The second uint32_t is 'instanceCount'
+        }
         // ========================================================
         // PASS A: COMPUTE SHADER (Simulation / Decoration)
         // ========================================================
@@ -1001,8 +1015,9 @@ int main() {
         // Push the LIVE Camera Matrix from Lua
         pfn_vkCmdPushConstants(cmd, g_gfxLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(CameraPushConstants), &g_cam_pc);
 
-        // Draw dynamically sized geometry!
-        pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0);
+        // THE MAGIC HANDOFF: Let the GPU dictate its own draw count!
+        // Parameters: cmd, buffer, offset, drawCount, stride
+        pfn_vkCmdDrawIndirect(cmd, g_buf_draw_cmd, 0, 1, 16);
 
         pfn_vkCmdEndRendering(cmd);
 
