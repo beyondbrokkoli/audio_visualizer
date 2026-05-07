@@ -191,17 +191,18 @@ function Memory.Init(vulkan_lib, core_state, use_avx2)
     Memory.CreateHostVisibleBuffer("Cage", "GPU_GlobalCage", 1, 16, core_state)
 
     -- ========================================================
-    -- THE INDIRECT DRAW COMMAND BUFFER (The 4th USB Port)
+    -- THE INDIRECT DRAW COMMAND BUFFERS (Ping-Ponged!)
     -- ========================================================
-    -- Usage: 0x0020 (Storage Buffer for Compute) + 0x0100 (Indirect Buffer for Graphics) = 0x0120
-    Memory.CreateHostVisibleBuffer("DrawCmd", "VkDrawIndirectCommand", 1, 0x0120, core_state)
+    Memory.CreateHostVisibleBuffer("DrawCmd_A", "VkDrawIndirectCommand", 1, 0x0120, core_state)
+    Memory.CreateHostVisibleBuffer("DrawCmd_B", "VkDrawIndirectCommand", 1, 0x0120, core_state)
 
-    -- Initialize the default values for our Octahedrons
-    local draw_cmd = ffi.cast("VkDrawIndirectCommand*", Memory.Mapped["DrawCmd"])
-    draw_cmd.vertexCount = 24   -- 24 vertices per particle (Octahedron)
-    draw_cmd.instanceCount = 0  -- GPU will increment this via atomicAdd!
-    draw_cmd.firstVertex = 0
-    draw_cmd.firstInstance = 0
+    -- Initialize defaults for A
+    local draw_cmd_A = ffi.cast("VkDrawIndirectCommand*", Memory.Mapped["DrawCmd_A"])
+    draw_cmd_A.vertexCount = 24; draw_cmd_A.instanceCount = 0; draw_cmd_A.firstVertex = 0; draw_cmd_A.firstInstance = 0
+
+    -- Initialize defaults for B
+    local draw_cmd_B = ffi.cast("VkDrawIndirectCommand*", Memory.Mapped["DrawCmd_B"])
+    draw_cmd_B.vertexCount = 24; draw_cmd_B.instanceCount = 0; draw_cmd_B.firstVertex = 0; draw_cmd_B.firstInstance = 0
 
     print("[MEMORY] Allocated & Mapped Dual-Purpose Indirect Draw Buffer.")
 

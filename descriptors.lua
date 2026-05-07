@@ -2,8 +2,8 @@ local ffi = require("ffi")
 
 local Descriptors = {}
 
--- NEW SIGNATURE: We pass bufDrawCmd into the Init function!
-function Descriptors.Init(vk, device, bufCPU_A, bufCPU_B, bufPing, bufPong, bufDrawCmd)
+-- NEW SIGNATURE: We pass bufDrawCmd into the Init function + Ping Pong!
+function Descriptors.Init(vk, device, bufCPU_A, bufCPU_B, bufPing, bufPong, bufDrawCmd_A, bufDrawCmd_B)
     print("[DESCRIPTORS] Wiring Asynchronous Tandem Rendering Sets...")
 
     -- ========================================================
@@ -114,6 +114,17 @@ function Descriptors.Init(vk, device, bufCPU_A, bufCPU_B, bufPing, bufPong, bufD
     -- NEW: The DrawCmd Buffer Info
     local bufInfoDrawCmd = ffi.new("VkDescriptorBufferInfo[1]"); bufInfoDrawCmd[0].buffer = bufDrawCmd; bufInfoDrawCmd[0].offset = 0; bufInfoDrawCmd[0].range = VK_WHOLE_SIZE
 
+-- Update the Buffer Infos:
+    local bufInfoDrawCmd_A = ffi.new("VkDescriptorBufferInfo[1]"); bufInfoDrawCmd_A[0].buffer = bufDrawCmd_A; bufInfoDrawCmd_A[0].offset = 0; bufInfoDrawCmd_A[0].range = VK_WHOLE_SIZE
+    local bufInfoDrawCmd_B = ffi.new("VkDescriptorBufferInfo[1]"); bufInfoDrawCmd_B[0].buffer = bufDrawCmd_B; bufInfoDrawCmd_B[0].offset = 0; bufInfoDrawCmd_B[0].range = VK_WHOLE_SIZE
+
+    -- Set 0 gets DrawCmd_A
+    writes[3].sType = 35; writes[3].dstSet = pSets[0]; writes[3].dstBinding = 3; writes[3].descriptorType = 7; writes[3].descriptorCount = 1; writes[3].pBufferInfo = bufInfoDrawCmd_A
+    
+    -- Set 1 gets DrawCmd_B
+    writes[7].sType = 35; writes[7].dstSet = pSets[1]; writes[7].dstBinding = 3; writes[7].descriptorType = 7; writes[7].descriptorCount = 1; writes[7].pBufferInfo = bufInfoDrawCmd_B
+
+-- FROM HERE ON OUT THERE IS SOME DEAD CODE? AT LEAST A TINY BIT MUST BE
     local writes = ffi.new("VkWriteDescriptorSet[8]") -- INCREASED TO 8
     ffi.fill(writes, ffi.sizeof(writes))
 
