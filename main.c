@@ -473,7 +473,7 @@ static int l_net_poll(lua_State* L) {
     char buffer[1024];
     struct sockaddr_in sender;
     socklen_t sender_len = sizeof(sender);
-    
+
     int bytes = 0;
     int latest_bytes = -1;
     char latest_buffer[1024];
@@ -482,7 +482,7 @@ static int l_net_poll(lua_State* L) {
     while ((bytes = recvfrom(g_udp_socket, buffer, sizeof(buffer) - 1, 0, (struct sockaddr*)&sender, &sender_len)) > 0) {
         latest_bytes = bytes;
         memcpy(latest_buffer, buffer, bytes);
-        
+
         // Save who just talked to us
         if (g_peer_addr.sin_port == 0) {
             g_peer_addr = sender;
@@ -492,7 +492,7 @@ static int l_net_poll(lua_State* L) {
     // 3. If we received any valid packets this frame, parse the absolute newest one
     if (latest_bytes > 0) {
         latest_buffer[latest_bytes] = '\0'; // Null-terminate
-        
+
         // Directly inject the floats into the struct memory
         if (sscanf(latest_buffer, "%f,%f,%f", &state->bass, &state->mid, &state->treble) == 3) {
             state->has_new_data = 1;
