@@ -780,65 +780,52 @@ int main() {
 
     printf("[C DEBUG] 4. Launching the Render Loop!\n"); fflush(stdout);
 
-    // ========================================================
+// ========================================================
     // THE RENDER LOOP (The Heartbeat)
     // ========================================================
     double last_time = glfwGetTime();
     while (!glfwWindowShouldClose(g_window)&& !g_quitting) {
         glfwPollEvents();
 
-        // 1. Calculate Delta Time (dt)
+        uint32_t currentFrame = frameIndex % MAX_FRAMES_IN_FLIGHT;
+
+        // 1. THE TRAFFIC COP MOVES UP: Wait for THIS frame's fence FIRST.
+        // This guarantees the GPU has completely finished reading the mapped memory!
+        pfn_vkWaitForFences(g_device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
+
+        // 2. Calculate Delta Time safely
         double current_time = glfwGetTime();
         double dt = current_time - last_time;
         last_time = current_time;
 
-        // 2. Call love_update(dt) and check the "Traffic Cop" status
+        // 3. THE HANDSHAKE: Call love_update NOW.
+        // Memory is unlocked, so AVX2 can violently overwrite it without tearing.
         int can_render = 0;
         lua_getglobal(L, "love_update");
         if (lua_isfunction(L, -1)) {
             lua_pushnumber(L, dt);
-            // We now expect 1 return value from Lua
-            if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+            lua_pushinteger(L, currentFrame); // Pass the hardware frame index directly to Lua!
+            if (lua_pcall(L, 2, 1, 0) != LUA_OK) { // We are passing 2 args now
                 printf("[LUA FATAL ERROR in love_update]: %s\n", lua_tostring(L, -1));
                 break;
             }
-            // Read the boolean: true = Render, false = Wait/Resize
             can_render = lua_toboolean(L, -1);
             lua_pop(L, 1);
         }
 
-        // 3. THE HANDSHAKE: If Lua says "Don't Render", we just loop/wait
+        // If Lua is busy rebuilding the engine during a resize, skip rendering.
         if (!can_render) {
-            // Sleep for 1ms to prevent 100% CPU usage while waiting for rebuild
-#ifdef _WIN32
-            Sleep(1);
-#else
-            usleep(1000);
-#endif
-            continue;
+            continue; 
         }
 
-        // --- THE TRAFFIC COP ---
-        // [Your existing synchronization, acquire, and draw logic continues here...]
-        // --- THE TRAFFIC COP ---
-        uint32_t currentFrame = frameIndex % MAX_FRAMES_IN_FLIGHT;
-        VkCommandBuffer cmd = commandBuffers[currentFrame];
-
-        // 1. Wait for THIS frame's fence to be clear before recording commands
-        pfn_vkWaitForFences(g_device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
-
-        // [FIX 2] DO NOT RESET THE FENCE HERE YET!
-        // If acquire fails, we need this fence to remain signaled!
-
-        // 2. Acquire the image using THIS frame's Semaphore
+        // 4. Acquire the image safely
         uint32_t imageIndex;
         VkResult res = pfn_vkAcquireNextImageKHR(g_device, g_swapchain, UINT64_MAX,
                                   imageAvailableSemaphores[currentFrame],
                                   VK_NULL_HANDLE, &imageIndex);
 
-        // 3. Catch the OS Window Resize / Swapchain Death
+        // Catch the OS Window Resize
         if (res == VK_ERROR_OUT_OF_DATE_KHR) {
-            // Force Lua to trigger the Debouncer!
             lua_getglobal(L, "love_resize_trigger");
             if (lua_isfunction(L, -1)) {
                 int w, h; glfwGetFramebufferSize(g_window, &w, &h);
@@ -846,14 +833,15 @@ int main() {
                 lua_pushinteger(L, h);
                 lua_pcall(L, 2, 0, 0);
             } else { lua_pop(L, 1); }
-            continue; // Skip rendering this frame! Let Lua rebuild it.
+            continue;
         } else if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) {
-            continue; // Skip on any other fatal error
+            continue;
         }
 
-        // 4. NOW it is safe to reset the fence!
+        // 5. NOW it is safe to reset the fence!
         pfn_vkResetFences(g_device, 1, &inFlightFences[currentFrame]);
 
+        VkCommandBuffer cmd = commandBuffers[currentFrame];
         pfn_vkResetCommandBuffer(cmd, 0);
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;

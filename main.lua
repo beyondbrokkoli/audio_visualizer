@@ -189,7 +189,9 @@ function love_resize_trigger(w, h)
 end
 
 local frame_count = 0
-function love_update(dt)
+
+-- Add currentFrame to the function signature
+function love_update(dt, currentFrame)
     if Engine.Resize.is_resizing then
         Engine.Resize.timer = Engine.Resize.timer + dt
         if Engine.Resize.timer >= Engine.Resize.cooldown then
@@ -202,6 +204,7 @@ function love_update(dt)
     dt = math.min(dt, 0.033)
     Engine.Time = Engine.Time + dt
     frame_count = frame_count + 1
+
     -- ====================================================
     -- INGEST PYTHON AUDIO STREAM (Zero-Allocation Memory Bridge)
     -- ====================================================
@@ -255,18 +258,18 @@ function love_update(dt)
     mem.Swarm_MetalBlend = Engine.MetalBlend
     mem.Swarm_ParadoxBlend = Engine.ParadoxBlend
 
-    -- 1. Resolve the 4-Field Phasing Matrix
-    local active_cpu_idx = frame_count % 2
-    local target_cpu_mapped, past_cpu_mapped, past_gpu_mapped
+    -- THE FIX: Let the Vulkan Hardware dictate the active ping-pong index!
+    local active_cpu_idx = currentFrame
 
+    local target_cpu_mapped, past_cpu_mapped, past_gpu_mapped
     if active_cpu_idx == 0 then
         target_cpu_mapped = memory.Mapped["SwarmCPU_A"]
-        past_cpu_mapped   = memory.Mapped["SwarmCPU_B"]
-        past_gpu_mapped   = memory.Mapped["SwarmPong"]
+        past_cpu_mapped = memory.Mapped["SwarmCPU_B"]
+        past_gpu_mapped = memory.Mapped["SwarmPong"]
     else
         target_cpu_mapped = memory.Mapped["SwarmCPU_B"]
-        past_cpu_mapped   = memory.Mapped["SwarmCPU_A"]
-        past_gpu_mapped   = memory.Mapped["SwarmPing"]
+        past_cpu_mapped = memory.Mapped["SwarmCPU_A"]
+        past_gpu_mapped = memory.Mapped["SwarmPing"]
     end
 
     VibeMath.vmath_bind_vulkan_buffers(target_cpu_mapped, past_cpu_mapped, past_gpu_mapped)
