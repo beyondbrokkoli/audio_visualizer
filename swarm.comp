@@ -6,20 +6,13 @@ struct Particle {
     float x, y, z, pad;
 };
 
-// THE 4-FIELD PHASING BINDINGS
-layout(std430, binding = 0) readonly buffer InSwarm { Particle inParticles[]; };     // CPU Current Math
-layout(std430, binding = 1) writeonly buffer OutSwarm { Particle outParticles[]; };  // GPU Write Target
-layout(std430, binding = 2) readonly buffer PastSwarm { Particle pastParticles[]; }; // GPU PAST FRAME
+layout(std430, binding = 0) readonly buffer InSwarm { Particle inParticles[]; };     
+layout(std430, binding = 1) writeonly buffer OutSwarm { Particle outParticles[]; };  
+layout(std430, binding = 2) readonly buffer PastSwarm { Particle pastParticles[]; }; 
 
 layout(push_constant) uniform PushConstants {
-    float dt;
-    float time;
-    int state;
-    int push;
-    int pull;
-    float bass;   // NEW: 0.0 to 1.0
-    float mid;    // NEW: 0.0 to 1.0
-    float treble; // NEW: 0.0 to 1.0
+    float dt; float time; int state; int push; int pull;
+    float bass; float mid; float treble;
 } pc;
 
 uint pcg_hash(uint seed) {
@@ -31,8 +24,8 @@ uint pcg_hash(uint seed) {
 void main() {
     uint id = gl_GlobalInvocationID.x;
     
-    // GUARDRAIL: Match this to g_draw_count in main.c (e.g., 250000 or 1000000)
-    if (id >= 250000) return;
+    // IMPORTANT: Let's process all 1,000,000 for now!
+    if (id >= 1000000) return;
 
     vec3 cpuPos = vec3(inParticles[id].x, inParticles[id].y, inParticles[id].z);
     vec3 gpuPastPos = vec3(pastParticles[id].x, pastParticles[id].y, pastParticles[id].z);
@@ -52,39 +45,31 @@ void main() {
         pos += dir * (rand2 * 300.0);
     }
     else if (pc.pull == 1) {
-        // AUDIO REACTIVE SINGULARITY
         float currentRadius = 2000.0 + (pc.bass * 6000.0);
         vec3 targetSphere = center + normalize(pos - center) * (rand1 * currentRadius);
         pos = mix(pos, targetSphere, 0.1);
     }
     else {
-        // GPU just handles the Treble elasticity and Mid turbulence now!
         float snap_speed = mix(0.02, 0.15, pc.treble);
         vec3 audioWobble = inferredVelocity * (0.1 + (pc.mid * 0.5));
-
         pos = mix(pos, cpuPos, snap_speed) + audioWobble;
     }
 
     // ====================================================
-    // THE QUANTUM CULL: Audio-Reactive Spawning
+    // THE SAFE QUANTUM CULL (Frustum Culling)
     // ====================================================
-    // Example: Particles organically "evaporate" if they are too still
-    // while the high-hats (treble) are quiet.
     bool isAlive = true;
     
-    // If the particle has low momentum AND the music is quiet, cull it!
-    if (length(inferredVelocity) < 0.5 && pc.treble < 0.2) {
-        // Randomize the evaporation so it looks like a dissolving cloud
-        if (rand1 > pc.mid) {
-            isAlive = false;
-        }
+    // Only evaporate particles if the music is actively pumping heavy BASS
+    // but the particle somehow has very low momentum (the stragglers)
+    if (pc.bass > 0.8 && length(inferredVelocity) < 1.0) {
+        if (rand1 > 0.5) isAlive = false;
     }
 
     if (!isAlive) {
-        // Teleport the particle infinitely far away to bypass the Rasterizer!
-        // 0.0/0.0 creates a NaN (Not a Number). When the Vertex Shader multiplies
-        // NaN by the Projection Matrix, the triangle disappears instantly!
-        pos = vec3(0.0 / 0.0); 
+        // Safe Culling: Shoot the particle 9 million units away!
+        // The GPU Camera Frustum will naturally ignore it without breaking driver math.
+        pos = vec3(9999999.0); 
     }
 
     outParticles[id].x = pos.x;
