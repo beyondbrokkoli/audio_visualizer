@@ -222,7 +222,7 @@ EXPORT void vmath_swarm_bundle(int count, float* px, float* py, float* pz, float
     }
 }
 
-EXPORT void vmath_swarm_galaxy(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scalee, float stiffness) {
+EXPORT void vmath_swarm_galaxy(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scale, float stiffness) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_time_ang = _mm256_set1_ps(time * 1.5f), v_time_z = _mm256_set1_ps(time * 3.0f);
     __m256 v_dt = _mm256_set1_ps(dt), v_k = _mm256_set1_ps(4.0f * dt), v_damp = _mm256_set1_ps(0.92f);
@@ -240,7 +240,7 @@ EXPORT void vmath_swarm_galaxy(int count, float* px, float* py, float* pz, float
         APPLY_SPRING_PHYSICS(stiffness);
     }
 }
-EXPORT void vmath_swarm_tornado(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scalee, float stiffness) {
+EXPORT void vmath_swarm_tornado(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scale, float stiffness) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_time_ang = _mm256_set1_ps(time * 4.0f);
     __m256 v_dt = _mm256_set1_ps(dt), v_k = _mm256_set1_ps(4.0f * dt), v_damp = _mm256_set1_ps(0.92f);
@@ -290,7 +290,7 @@ EXPORT void vmath_swarm_gyroscope(int count, float* px, float* py, float* pz, fl
         APPLY_SPRING_PHYSICS(stiffness);
     }
 }
-EXPORT void vmath_swarm_metal(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float noise_blend, float scalee, float stiffness) {
+EXPORT void vmath_swarm_metal(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float noise_blend, float scale, float stiffness) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_time = _mm256_set1_ps(time);
     __m256 v_blend = _mm256_set1_ps(noise_blend);
@@ -323,7 +323,7 @@ EXPORT void vmath_swarm_metal(int count, float* px, float* py, float* pz, float*
         APPLY_SPRING_PHYSICS(stiffness);
     }
 }
-EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float blend, float scalee, float stiffness) {
+EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float blend, float scale, float stiffness) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_base_radius = _mm256_set1_ps(4000.0f * scale);
 
