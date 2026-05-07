@@ -57,21 +57,11 @@ void main() {
         pos = mix(pos, targetSphere, 0.1);
     }
     else {
-        // 1. Treble dictates the elasticity (snap back speed)
+        // GPU just handles the Treble elasticity and Mid turbulence now!
         float snap_speed = mix(0.02, 0.15, pc.treble);
-        
-        // 2. Mid adds turbulence to moving particles
         vec3 audioWobble = inferredVelocity * (0.1 + (pc.mid * 0.5));
         
-        // 3. THE IDLE BASS PULSE (The Fix!)
-        // Push the target position outward from the center based on the Kick Drum
-        vec3 dirFromCenter = normalize(cpuPos - center);
-        
-        // When the bass hits 1.0, the particles are shoved 1500 units outward!
-        vec3 bassTargetPos = cpuPos + (dirFromCenter * pc.bass * 1500.0); 
-
-        // 4. Mix towards the new Bass Target instead of the raw CPU math
-        pos = mix(pos, bassTargetPos, snap_speed) + audioWobble;
+        pos = mix(pos, cpuPos, snap_speed) + audioWobble;
     }
 
     outParticles[id].x = pos.x;

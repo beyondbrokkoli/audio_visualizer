@@ -3,17 +3,24 @@
 #include <stdbool.h>
 #include <math.h>
 
+// ========================================================
+// CROSS-PLATFORM FFI EXPORT MACRO
+// ========================================================
 #ifdef _WIN32
+    // Windows DLL export
     #define EXPORT __declspec(dllexport)
 #else
+    // Linux/macOS Shared Object export
     #define EXPORT __attribute__((visibility("default")))
 #endif
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
-#define CAGE_FACTOR 32
-
+#define CAGE_FACTOR 64
+// ========================================================
+// CROSS-PLATFORM THREADING BRIDGE (Mutex & CondVars)
+// ========================================================
 #if defined(_WIN32) || defined(_WIN64)
     #include <windows.h>
     typedef HANDLE vmath_thread_t;
@@ -50,6 +57,9 @@
     static void vmath_cond_destroy(vmath_cond_t* cv) { pthread_cond_destroy(cv); }
 #endif
 
+// ========================================================
+// THE OS-SLEEP THREAD POOL STATE (Physics Only Now!)
+// ========================================================
 #define NUM_WORKERS 4
 
 vmath_mutex_t g_worker_mutex[NUM_WORKERS];
@@ -59,6 +69,9 @@ int g_worker_sig[NUM_WORKERS];
 int g_worker_done[NUM_WORKERS];
 vmath_thread_t g_worker_threads[NUM_WORKERS];
 
+// ========================================================================
+// CORE STRUCTS
+// ========================================================================
 typedef struct {
     float x, y, z;
     float yaw, pitch;
@@ -74,6 +87,7 @@ typedef struct {
     float *Obj_RTX, *Obj_RTY, *Obj_RTZ;
     float *Obj_UPX, *Obj_UPY, *Obj_UPZ;
 
+    // Swarm Double Buffers
     float *Swarm_PX[2]; float *Swarm_PY[2]; float *Swarm_PZ[2];
     float *Swarm_VX[2]; float *Swarm_VY[2]; float *Swarm_VZ[2];
     int *Swarm_Indices[2];
@@ -89,6 +103,10 @@ typedef struct {
     float *Swarm_TempDistances;
 } RenderMemory;
 
+// ========================================================
+// THE UNIFIED PAYLOAD (Used by all 4 Workers)
+// ========================================================
+
 typedef struct {
     RenderMemory* mem;
     float time;
@@ -96,23 +114,27 @@ typedef struct {
     int state;
     int push_active;
     int pull_active;
-    int particle_count; 
-    float bass;
-    float mid;
-    float treble;
+    int particle_count; // <--- ADD THIS!
+    float bass;   // <-- ADDED
+    float mid;    // <-- ADDED
+    float treble; // <-- ADDED
 } SwarmWorkerPayload;
 
 SwarmWorkerPayload g_worker_payload;
 
+// --- Vulkan AoS Structs & Pointers ---
+// 16-byte aligned vector for perfect PCIe Write-Combining
 typedef struct {
     float x, y, z;
     float padding;
 } VertexAoS;
 
+// NEW: The 4-Field Phasing Pointers
 static VertexAoS* g_cpu_write_target = NULL;
 static VertexAoS* g_cpu_read_past  = NULL;
 static VertexAoS* g_gpu_read_past  = NULL;
 
+// GLOBALS
 int       g_canvas_w;
 int       g_canvas_h;
 float     g_half_w;
@@ -121,6 +143,7 @@ RenderMemory* g_mem ;
 CameraState* g_cam;
 int* g_queue;
 
+// UPDATED BINDING FUNCTION
 EXPORT void vmath_bind_vulkan_buffers(VertexAoS* write_target, VertexAoS* cpu_past, VertexAoS* gpu_past) {
     g_cpu_write_target = write_target;
     g_cpu_read_past = cpu_past;
@@ -131,10 +154,15 @@ EXPORT void vmath_bind_engine(RenderMemory* mem, CameraState* cam, int* queue) {
     g_mem = mem; g_cam = cam; g_queue = queue;
 }
 
+// Notice how we removed the screen pointers! AVX2 no longer cares about rasterizing.
 EXPORT void vmath_set_resolution(int w, int h, uint32_t* screen_ptr, float* z_buffer) {
     g_canvas_w = w; g_canvas_h = h; g_half_w = w * 0.5f; g_half_h = h * 0.5f;
 }
 
+// ========================================================================
+// ALL PHYSICS KERNELS 
+// ========================================================================
+// FAST AVX2 TRIGONOMETRY (Minimax Approximations)
 static inline __m256 wrap_pi_avx(__m256 x) {
     __m256 inv_two_pi = _mm256_set1_ps(1.0f / (2.0f * M_PI));
     __m256 two_pi = _mm256_set1_ps(2.0f * M_PI);
@@ -186,11 +214,9 @@ EXPORT void vmath_swarm_update_velocities(int count, float* px_in, float* py_in,
         px_out[i] = px; py_out[i] = py; pz_out[i] = pz; vx_out[i] = vx; vy_out[i] = vy; vz_out[i] = vz;
     }
 }
-
-// NOTE THE NEW "SCALE" PARAMETERS ON ALL SHAPES!
-EXPORT void vmath_swarm_bundle(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scale) {
+EXPORT void vmath_swarm_bundle(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
-    __m256 v_r = _mm256_set1_ps((2000.0f + 400.0f * sinf(time * 6.0f)) * scale);
+    __m256 v_r = _mm256_set1_ps(2000.0f + 400.0f * sinf(time * 6.0f));
     __m256 v_golden = _mm256_set1_ps(2.39996323f);
     __m256 v_1 = _mm256_set1_ps(1.0f), v_2 = _mm256_set1_ps(2.0f);
     __m256 v_dt = _mm256_set1_ps(dt), v_k = _mm256_set1_ps(4.0f * dt), v_damp = _mm256_set1_ps(0.92f);
@@ -201,6 +227,7 @@ EXPORT void vmath_swarm_bundle(int count, float* px, float* py, float* pz, float
         __m256 v_i = _mm256_set_ps(i+7, i+6, i+5, i+4, i+3, i+2, i+1, i);
 
         __m256 v_phi = _mm256_mul_ps(v_i, v_golden);
+
         __m256 v_cos_theta = _mm256_fnmadd_ps(v_2, v_s, v_1);
         __m256 v_sin_theta = _mm256_mul_ps(v_2, _mm256_sqrt_ps(_mm256_mul_ps(v_s, _mm256_sub_ps(v_1, v_s))));
 
@@ -212,7 +239,7 @@ EXPORT void vmath_swarm_bundle(int count, float* px, float* py, float* pz, float
     }
 }
 
-EXPORT void vmath_swarm_galaxy(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scale) {
+EXPORT void vmath_swarm_galaxy(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_time_ang = _mm256_set1_ps(time * 1.5f), v_time_z = _mm256_set1_ps(time * 3.0f);
     __m256 v_dt = _mm256_set1_ps(dt), v_k = _mm256_set1_ps(4.0f * dt), v_damp = _mm256_set1_ps(0.92f);
@@ -221,16 +248,16 @@ EXPORT void vmath_swarm_galaxy(int count, float* px, float* py, float* pz, float
     for (; i <= count - 8; i += 8) {
         __m256 v_s = _mm256_loadu_ps(&seed[i]);
         __m256 v_angle = _mm256_fmadd_ps(v_s, _mm256_set1_ps(3.14159f * 30.0f), v_time_ang);
-        __m256 v_r = _mm256_fmadd_ps(v_s, _mm256_set1_ps(14000.0f * scale), _mm256_set1_ps(1000.0f * scale));
+        __m256 v_r = _mm256_fmadd_ps(v_s, _mm256_set1_ps(14000.0f), _mm256_set1_ps(1000.0f));
 
         __m256 v_tx = _mm256_fmadd_ps(v_r, fast_cos_avx(v_angle), v_cx);
-        __m256 v_ty = _mm256_fmadd_ps(_mm256_set1_ps(800.0f * scale), fast_sin_avx(_mm256_fnmadd_ps(v_time_z, _mm256_set1_ps(1.0f), _mm256_mul_ps(v_s, _mm256_set1_ps(40.0f)))), v_cy);
+        __m256 v_ty = _mm256_fmadd_ps(_mm256_set1_ps(800.0f), fast_sin_avx(_mm256_fnmadd_ps(v_time_z, _mm256_set1_ps(1.0f), _mm256_mul_ps(v_s, _mm256_set1_ps(40.0f)))), v_cy);
         __m256 v_tz = _mm256_fmadd_ps(v_r, fast_sin_avx(v_angle), v_cz);
 
         APPLY_SPRING_PHYSICS();
     }
 }
-EXPORT void vmath_swarm_tornado(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scale) {
+EXPORT void vmath_swarm_tornado(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_time_ang = _mm256_set1_ps(time * 4.0f);
     __m256 v_dt = _mm256_set1_ps(dt), v_k = _mm256_set1_ps(4.0f * dt), v_damp = _mm256_set1_ps(0.92f);
@@ -238,9 +265,9 @@ EXPORT void vmath_swarm_tornado(int count, float* px, float* py, float* pz, floa
     int i = 0;
     for (; i <= count - 8; i += 8) {
         __m256 v_s = _mm256_loadu_ps(&seed[i]);
-        __m256 v_height = _mm256_fnmadd_ps(_mm256_set1_ps(-24000.0f * scale), v_s, _mm256_set1_ps(-12000.0f * scale));
+        __m256 v_height = _mm256_fnmadd_ps(_mm256_set1_ps(-24000.0f), v_s, _mm256_set1_ps(-12000.0f));
         __m256 v_angle = _mm256_fnmadd_ps(v_time_ang, _mm256_set1_ps(1.0f), _mm256_mul_ps(v_s, _mm256_set1_ps(3.14159f * 30.0f)));
-        __m256 v_r = _mm256_fmadd_ps(v_s, _mm256_set1_ps(4000.0f * scale), _mm256_set1_ps(2000.0f * scale));
+        __m256 v_r = _mm256_fmadd_ps(v_s, _mm256_set1_ps(4000.0f), _mm256_set1_ps(2000.0f));
 
         __m256 v_tx = _mm256_fmadd_ps(v_r, fast_cos_avx(v_angle), v_cx);
         __m256 v_ty = _mm256_add_ps(v_cy, v_height);
@@ -249,9 +276,9 @@ EXPORT void vmath_swarm_tornado(int count, float* px, float* py, float* pz, floa
         APPLY_SPRING_PHYSICS();
     }
 }
-EXPORT void vmath_swarm_gyroscope(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float scale) {
+EXPORT void vmath_swarm_gyroscope(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
-    __m256 v_r = _mm256_set1_ps(7000.0f * scale);
+    __m256 v_r = _mm256_set1_ps(7000.0f);
     __m256 v_time_ang = _mm256_set1_ps(time * 2.5f);
     __m256 v_dt = _mm256_set1_ps(dt), v_k = _mm256_set1_ps(4.0f * dt), v_damp = _mm256_set1_ps(0.92f);
 
@@ -263,10 +290,12 @@ EXPORT void vmath_swarm_gyroscope(int count, float* px, float* py, float* pz, fl
         __m256 v_cos = fast_cos_avx(v_angle);
         __m256 v_sin = fast_sin_avx(v_angle);
 
+        // Calculate all 3 ring positions simultaneously!
         __m256 r0_x = _mm256_fmadd_ps(v_r, v_cos, v_cx), r0_y = _mm256_fmadd_ps(v_r, v_sin, v_cy), r0_z = v_cz;
         __m256 r1_x = r0_x, r1_y = v_cy, r1_z = _mm256_fmadd_ps(v_r, v_sin, v_cz);
         __m256 r2_x = v_cx, r2_y = _mm256_fmadd_ps(v_r, v_cos, v_cy), r2_z = r1_z;
 
+        // Masking logic based on (i % 3)
         int rings[8] = { (i)%3, (i+1)%3, (i+2)%3, (i+3)%3, (i+4)%3, (i+5)%3, (i+6)%3, (i+7)%3 };
         __m256i v_ring = _mm256_loadu_si256((__m256i*)rings);
 
@@ -280,43 +309,80 @@ EXPORT void vmath_swarm_gyroscope(int count, float* px, float* py, float* pz, fl
         APPLY_SPRING_PHYSICS();
     }
 }
-EXPORT void vmath_swarm_metal(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float noise_blend, float scale) {
+EXPORT void vmath_swarm_metal(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float noise_blend) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
     __m256 v_time = _mm256_set1_ps(time);
     __m256 v_blend = _mm256_set1_ps(noise_blend);
-    __m256 v_radius = _mm256_set1_ps(4000.0f * scale);
-    __m256 v_max_disp = _mm256_set1_ps(3000.0f * scale); 
+    __m256 v_radius = _mm256_set1_ps(4000.0f);
+    __m256 v_max_disp = _mm256_set1_ps(3000.0f); // Max noise distortion
 
     __m256 v_dt = _mm256_set1_ps(dt);
-    __m256 v_k = _mm256_set1_ps(4.0f * dt); 
-    __m256 v_damp = _mm256_set1_ps(0.92f);  
+    __m256 v_k = _mm256_set1_ps(4.0f * dt); // Spring stiffness
+    __m256 v_damp = _mm256_set1_ps(0.92f);  // Friction
 
     int i = 0;
+    // BLAST 8 PARTICLES PER CYCLE
     for (; i <= count - 8; i += 8) {
         __m256 v_s = _mm256_loadu_ps(&seed[i]);
 
+        // 1. FAST SPHERICAL MAPPING (Fibonacci-style distribution without acos)
+        // Z goes from 1.0 to -1.0 based on seed
         __m256 v_sz = _mm256_fnmadd_ps(v_s, _mm256_set1_ps(2.0f), _mm256_set1_ps(1.0f));
+        // Radius at this Z: r_xy = sqrt(1.0 - z*z)
         __m256 v_rxy = _mm256_sqrt_ps(_mm256_fnmadd_ps(v_sz, v_sz, _mm256_set1_ps(1.0f)));
+        // Phi rotates wildly based on seed
         __m256 v_phi = _mm256_mul_ps(v_s, _mm256_set1_ps(10000.0f));
 
         __m256 v_sx = _mm256_mul_ps(v_rxy, fast_cos_avx(v_phi));
         __m256 v_sy = _mm256_mul_ps(v_rxy, fast_sin_avx(v_phi));
 
+        // 2. EVALUATE 4D NOISE AT THE NORMALS
         __m256 v_noise = fast_trig_noise_avx(v_sx, v_sy, v_sz, v_time);
+
+        // 3. APPLY DISPLACEMENT (Using FMA to blend seamlessly!)
+        // displacement = noise * noise_blend * max_disp
         __m256 v_disp = _mm256_mul_ps(v_noise, _mm256_mul_ps(v_blend, v_max_disp));
 
+        // Target Pos = Center + Normal * (Radius + Displacement)
         __m256 v_final_r = _mm256_add_ps(v_radius, v_disp);
         __m256 v_tx = _mm256_fmadd_ps(v_sx, v_final_r, v_cx);
         __m256 v_ty = _mm256_fmadd_ps(v_sy, v_final_r, v_cy);
         __m256 v_tz = _mm256_fmadd_ps(v_sz, v_final_r, v_cz);
 
-        APPLY_SPRING_PHYSICS();
+        // 4. SPRING PHYSICS (Pull current pos toward Target Pos)
+        __m256 v_px = _mm256_loadu_ps(&px[i]);
+        __m256 v_py = _mm256_loadu_ps(&py[i]);
+        __m256 v_pz = _mm256_loadu_ps(&pz[i]);
+
+        __m256 v_vx = _mm256_loadu_ps(&vx[i]);
+        __m256 v_vy = _mm256_loadu_ps(&vy[i]);
+        __m256 v_vz = _mm256_loadu_ps(&vz[i]);
+
+        // v += (target - p) * k * dt; v *= damp;
+        v_vx = _mm256_mul_ps(_mm256_fmadd_ps(_mm256_sub_ps(v_tx, v_px), v_k, v_vx), v_damp);
+        v_vy = _mm256_mul_ps(_mm256_fmadd_ps(_mm256_sub_ps(v_ty, v_py), v_k, v_vy), v_damp);
+        v_vz = _mm256_mul_ps(_mm256_fmadd_ps(_mm256_sub_ps(v_tz, v_pz), v_k, v_vz), v_damp);
+
+        // p += v * dt;
+        v_px = _mm256_fmadd_ps(v_vx, v_dt, v_px);
+        v_py = _mm256_fmadd_ps(v_vy, v_dt, v_py);
+        v_pz = _mm256_fmadd_ps(v_vz, v_dt, v_pz);
+
+        _mm256_storeu_ps(&px[i], v_px);
+        _mm256_storeu_ps(&py[i], v_py);
+        _mm256_storeu_ps(&pz[i], v_pz);
+        _mm256_storeu_ps(&vx[i], v_vx);
+        _mm256_storeu_ps(&vy[i], v_vy);
+        _mm256_storeu_ps(&vz[i], v_vz);
     }
 }
-EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float blend, float scale) {
+EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float* seed, float cx, float cy, float cz, float time, float dt, float blend) {
     __m256 v_cx = _mm256_set1_ps(cx), v_cy = _mm256_set1_ps(cy), v_cz = _mm256_set1_ps(cz);
-    __m256 v_base_radius = _mm256_set1_ps(4000.0f * scale);
+    __m256 v_base_radius = _mm256_set1_ps(4000.0f);
 
+    // THE DOD BLENDING MATH (Calculated once outside the loop!)
+    // If blend=0: eversion=1.0, bulge=0.0
+    // If blend=1: eversion=cos(t), bulge=sin(t)
     float t_scaled = time * 1.5f;
     float eversion_scalar = 1.0f + blend * (cosf(t_scaled) - 1.0f);
     float bulge_scalar = blend * sinf(t_scaled);
@@ -330,7 +396,7 @@ EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float
     __m256 v_2_0 = _mm256_set1_ps(2.0f);
     __m256 v_3_0 = _mm256_set1_ps(3.0f);
     __m256 v_pi = _mm256_set1_ps(M_PI);
-    __m256 v_phi_mul = _mm256_set1_ps(M_PI * 2.0f * 100.0f); 
+    __m256 v_phi_mul = _mm256_set1_ps(M_PI * 2.0f * 100.0f); // Wrap phi around 100 times
 
     __m256 v_dt = _mm256_set1_ps(dt);
     __m256 v_k = _mm256_set1_ps(4.0f * dt);
@@ -340,6 +406,7 @@ EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float
     for (; i <= count - 8; i += 8) {
         __m256 v_s = _mm256_loadu_ps(&seed[i]);
 
+        // 1. Map seed to Theta [0, PI] and Phi [0, 2PI * 100]
         __m256 v_theta = _mm256_mul_ps(v_s, v_pi);
         __m256 v_phi = _mm256_mul_ps(v_s, v_phi_mul);
 
@@ -349,6 +416,7 @@ EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float
         __m256 v_nx = _mm256_mul_ps(v_sin_theta, fast_cos_avx(v_phi));
         __m256 v_nz = _mm256_mul_ps(v_sin_theta, fast_sin_avx(v_phi));
 
+        // 2. PARADOX MATH
         __m256 v_waves = fast_cos_avx(_mm256_mul_ps(v_phi, v_4_0));
         __m256 v_twist = fast_sin_avx(_mm256_mul_ps(v_theta, v_2_0));
 
@@ -359,6 +427,7 @@ EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float
 
         __m256 v_r_main = _mm256_mul_ps(v_base_radius, v_eversion);
 
+        // 3. APPLY DISPLACEMENT
         __m256 v_tx = _mm256_fmadd_ps(v_nx, _mm256_add_ps(v_r_main, v_r_corr), v_cx);
         __m256 v_tz = _mm256_fmadd_ps(v_nz, _mm256_add_ps(v_r_main, v_r_corr), v_cz);
 
@@ -368,7 +437,29 @@ EXPORT void vmath_swarm_smales(int count, float* px, float* py, float* pz, float
 
         __m256 v_ty = _mm256_add_ps(v_cy, _mm256_fmadd_ps(v_ny, v_r_main, v_ty_offset));
 
-        APPLY_SPRING_PHYSICS();
+        // 4. SPRING PHYSICS
+        __m256 v_px = _mm256_loadu_ps(&px[i]);
+        __m256 v_py = _mm256_loadu_ps(&py[i]);
+        __m256 v_pz = _mm256_loadu_ps(&pz[i]);
+
+        __m256 v_vx = _mm256_loadu_ps(&vx[i]);
+        __m256 v_vy = _mm256_loadu_ps(&vy[i]);
+        __m256 v_vz = _mm256_loadu_ps(&vz[i]);
+
+        v_vx = _mm256_mul_ps(_mm256_fmadd_ps(_mm256_sub_ps(v_tx, v_px), v_k, v_vx), v_damp);
+        v_vy = _mm256_mul_ps(_mm256_fmadd_ps(_mm256_sub_ps(v_ty, v_py), v_k, v_vy), v_damp);
+        v_vz = _mm256_mul_ps(_mm256_fmadd_ps(_mm256_sub_ps(v_tz, v_pz), v_k, v_vz), v_damp);
+
+        v_px = _mm256_fmadd_ps(v_vx, v_dt, v_px);
+        v_py = _mm256_fmadd_ps(v_vy, v_dt, v_py);
+        v_pz = _mm256_fmadd_ps(v_vz, v_dt, v_pz);
+
+        _mm256_storeu_ps(&px[i], v_px);
+        _mm256_storeu_ps(&py[i], v_py);
+        _mm256_storeu_ps(&pz[i], v_pz);
+        _mm256_storeu_ps(&vx[i], v_vx);
+        _mm256_storeu_ps(&vy[i], v_vy);
+        _mm256_storeu_ps(&vz[i], v_vz);
     }
 }
 EXPORT void vmath_swarm_apply_explosion(int count, float* px, float* py, float* pz, float* vx, float* vy, float* vz, float ex, float ey, float ez, float force, float radius) {
@@ -378,7 +469,7 @@ EXPORT void vmath_swarm_apply_explosion(int count, float* px, float* py, float* 
     __m256 v_force = _mm256_set1_ps(force);
     __m256 v_inv_radius = _mm256_set1_ps(1.0f / radius);
 
-    int i = 0; 
+    int i = 0; // <--- EXTRACTED SO IT SURVIVES FOR THE SCALAR LOOP!
     for (; i <= count - 8; i += 8) {
         __m256 dx = _mm256_sub_ps(_mm256_loadu_ps(&px[i]), v_ex);
         __m256 dy = _mm256_sub_ps(_mm256_loadu_ps(&py[i]), v_ey);
@@ -386,13 +477,16 @@ EXPORT void vmath_swarm_apply_explosion(int count, float* px, float* py, float* 
 
         __m256 dist2 = _mm256_fmadd_ps(dz, dz, _mm256_fmadd_ps(dy, dy, _mm256_mul_ps(dx, dx)));
 
+        // Mask: 1.0f < dist2 < r2
         __m256 mask = _mm256_and_ps(_mm256_cmp_ps(dist2, v_r2, _CMP_LT_OQ), _mm256_cmp_ps(dist2, v_1, _CMP_GT_OQ));
 
         if (!_mm256_testz_ps(mask, mask)) {
-            __m256 inv_dist = _mm256_rsqrt_ps(dist2); 
+            __m256 inv_dist = _mm256_rsqrt_ps(dist2); // Fast hardware inverse square root
             __m256 dist = _mm256_mul_ps(dist2, inv_dist);
+
+            // f = force * (1.0f - dist * inv_radius)
             __m256 f = _mm256_mul_ps(v_force, _mm256_sub_ps(v_1, _mm256_mul_ps(dist, v_inv_radius)));
-            __m256 f_inv_dist = _mm256_mul_ps(f, inv_dist); 
+            __m256 f_inv_dist = _mm256_mul_ps(f, inv_dist); // (f / dist)
 
             __m256 v_vx = _mm256_loadu_ps(&vx[i]);
             __m256 v_vy = _mm256_loadu_ps(&vy[i]);
@@ -411,6 +505,7 @@ EXPORT void vmath_swarm_apply_explosion(int count, float* px, float* py, float* 
 EXPORT void vmath_swarm_sort_depth(int count, float* px, float* py, float* pz, int* indices, int* temp_indices, float* distances, float* temp_distances, float cx, float cy, float cz) {
     for(int j = 0; j < count; j++) indices[j] = j;
 }
+// The bare-metal PRNG
 static inline float fast_xorshift_float(uint32_t* state) {
     *state ^= *state << 13;
     *state ^= *state >> 17;
@@ -418,11 +513,14 @@ static inline float fast_xorshift_float(uint32_t* state) {
     return (float)(*state & 0xFFFFFF) / 16777215.0f;
 }
 
+// The Dedicated Bootloader
 EXPORT void vmath_seed_swarm(int particle_count) {
     if (!g_mem || particle_count <= 0) return;
-    RenderMemory* mem = g_mem;
-    uint32_t rng_state = 1337; 
 
+    RenderMemory* mem = g_mem;
+    uint32_t rng_state = 1337; // The master universe seed
+
+    // A single C core will rip through this loop in roughly ~3ms
     for (int i = 0; i < particle_count; i++) {
         mem->Swarm_PX[0][i] = (fast_xorshift_float(&rng_state) - 0.5f) * 20000.0f;
         mem->Swarm_PY[0][i] = (fast_xorshift_float(&rng_state) - 0.5f) * 10000.0f + 5000.0f;
@@ -435,13 +533,13 @@ EXPORT void vmath_seed_swarm(int particle_count) {
         mem->Swarm_Seed[i] = (float)i / (float)(particle_count - 1);
     }
 }
-
 THREAD_FUNC vmath_swarm_worker(void* arg) {
     int t_id = (int)(intptr_t)arg;
     float jblow_thread_id = (float)t_id;
     SwarmWorkerPayload* p = &g_worker_payload;
 
     while (1) {
+        // 1. SLEEP UNTIL SIGNALED
         vmath_mutex_lock(&g_worker_mutex[t_id]);
         while (g_worker_sig[t_id] == 0) {
             vmath_cond_wait(&g_worker_cv_start[t_id], &g_worker_mutex[t_id]);
@@ -456,6 +554,7 @@ THREAD_FUNC vmath_swarm_worker(void* arg) {
         float c_time = p->time;
         float c_dt = p->dt;
 
+        // 2. THE PURE HOT LOOP
         if (g_cpu_write_target && mem && p->particle_count > 0) {
             int total_particles = p->particle_count;
             int chunk_size = total_particles / NUM_WORKERS;
@@ -463,7 +562,12 @@ THREAD_FUNC vmath_swarm_worker(void* arg) {
             int start_idx = t_id * chunk_size;
             int end_idx = (t_id == NUM_WORKERS - 1) ? total_particles : start_idx + chunk_size;
             int chunk_count = end_idx - start_idx;
+            float size = 20.0f;
 
+            // ==========================================
+            // PHASE 1: PHYSICS HOT LOOP
+            // ==========================================
+            // Always apply base velocities first
             vmath_swarm_update_velocities(chunk_count,
                 mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx,
                 mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx,
@@ -471,33 +575,7 @@ THREAD_FUNC vmath_swarm_worker(void* arg) {
                 mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx,
                 -15000*CAGE_FACTOR, 15000*CAGE_FACTOR, -4000*CAGE_FACTOR, 15000*CAGE_FACTOR, -15000*CAGE_FACTOR, 15000*CAGE_FACTOR, c_dt, -8000.0f * mem->Swarm_GravityBlend);
 
-            // ==========================================
-            // THE VJ CHOREOGRAPHY (AUDIO INJECTION)
-            // ==========================================
-            // 1. Time Modulation (Mids)
-            float audio_time = c_time * (1.0f + (p->mid * 1.5f)); 
-
-            // 2. The Lerping Technique (Start fast, decay slow!)
-            float bass_punch = p->bass * p->bass * p->bass; 
-            
-            // 3. Dynamic Expansion (Shapes gracefully expand up to 1.6x size)
-            float base_scale = 1.0f + (bass_punch * 0.6f);
-
-            // 4. THE HIGHLIGHT REEL (Specific shape reactions!)
-            // Gyroscope (4): The Orthogonal Black Hole
-            if (p->state == 4 && p->bass > 0.4f) {
-                vmath_swarm_apply_explosion(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, 0, 5000, 0, -8000000.0f * c_dt * bass_punch, 20000.0f);
-            }
-            // Tornado (3) & Galaxy (2): The Water Splash
-            else if ((p->state == 3 || p->state == 2) && p->bass > 0.6f) {
-                vmath_swarm_apply_explosion(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, 0, 5000, 0, -5000000.0f * c_dt * p->bass, 12000.0f);
-            }
-            // Smale's Paradox (6): The Eversion Shatter
-            else if (p->state == 6 && p->bass > 0.7f) {
-                vmath_swarm_apply_explosion(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, 0, 5000, 0, 9000000.0f * c_dt * bass_punch, 25000.0f);
-            }
-
-            // Normal Manual Overrides
+            // Handle Mouse Explosions
             if (p->push_active) {
                 vmath_swarm_apply_explosion(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, 0, 5000, 0, 5000000.0f * c_dt, 15000.0f);
             }
@@ -505,22 +583,41 @@ THREAD_FUNC vmath_swarm_worker(void* arg) {
                 vmath_swarm_apply_explosion(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, 0, 5000, 0, -4000000.0f * c_dt, 20000.0f);
             }
 
+            // ==========================================
+            // AUDIO PHYSICS INJECTION
+            // ==========================================
+            // Mids speed up the local time (faster rotation on hi-hats/snares)
+            float audio_time = c_time * (1.0f + (p->mid * 2.0f));
+
+            // Bass scales the macro-geometry up to 2x size!
+            // (You can pass this into vmath_swarm_* functions later to physically expand the shapes)
+            float base_scale = 1.0f + (p->bass * 1.0f);
+
+            // Handle Swarm Formations (Notice audio_time replaces c_time!)
             switch (p->state) {
-                case 1: vmath_swarm_bundle(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, base_scale); break;
-                case 2: vmath_swarm_galaxy(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, base_scale); break;
-                case 3: vmath_swarm_tornado(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, base_scale); break;
-                case 4: vmath_swarm_gyroscope(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, base_scale); break;
-                case 5: vmath_swarm_metal(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, mem->Swarm_MetalBlend, base_scale); break;
-                case 6: vmath_swarm_smales(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, mem->Swarm_ParadoxBlend, base_scale); break;
+                case 1: vmath_swarm_bundle(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt); break;
+                case 2: vmath_swarm_galaxy(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt); break;
+                case 3: vmath_swarm_tornado(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt); break;
+                case 4: vmath_swarm_gyroscope(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt); break;
+                case 5: vmath_swarm_metal(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, mem->Swarm_MetalBlend); break;
+                case 6: vmath_swarm_smales(chunk_count, mem->Swarm_PX[0] + start_idx, mem->Swarm_PY[0] + start_idx, mem->Swarm_PZ[0] + start_idx, mem->Swarm_VX[0] + start_idx, mem->Swarm_VY[0] + start_idx, mem->Swarm_VZ[0] + start_idx, mem->Swarm_Seed + start_idx, 0, 5000, 0, audio_time, c_dt, mem->Swarm_ParadoxBlend); break;
             }
 
+            // ==========================================
+            // PHASE 2: TRANSLATION HOT LOOP
+            // ==========================================
             for (int i = start_idx; i < end_idx; i++) {
+                // Write into the dedicated write target for this frame
                 g_cpu_write_target[i] = (VertexAoS){
-                    mem->Swarm_PX[0][i], mem->Swarm_PY[0][i], mem->Swarm_PZ[0][i], jblow_thread_id
+                    mem->Swarm_PX[0][i],
+                    mem->Swarm_PY[0][i],
+                    mem->Swarm_PZ[0][i],
+                    jblow_thread_id
                 };
             }
         }
 
+        // 3. SIGNAL DONE
         vmath_mutex_lock(&g_worker_mutex[t_id]);
         g_worker_sig[t_id] = 0;
         g_worker_done[t_id] = 1;
@@ -533,6 +630,7 @@ THREAD_FUNC vmath_swarm_worker(void* arg) {
 EXPORT void vmath_step_swarm(int particle_count, float time, float dt, int state, int push_active, int pull_active, float bass, float mid, float treble) {
     if (!g_mem) return;
 
+    // 1. SETUP CLEAN PAYLOAD
     g_worker_payload.mem = g_mem;
     g_worker_payload.particle_count = particle_count;
     g_worker_payload.time = time;
@@ -540,10 +638,11 @@ EXPORT void vmath_step_swarm(int particle_count, float time, float dt, int state
     g_worker_payload.state = state;
     g_worker_payload.push_active = push_active;
     g_worker_payload.pull_active = pull_active;
-    g_worker_payload.bass = bass;     
-    g_worker_payload.mid = mid;       
-    g_worker_payload.treble = treble; 
+    g_worker_payload.bass = bass;     // <-- ADDED
+    g_worker_payload.mid = mid;       // <-- ADDED
+    g_worker_payload.treble = treble; // <-- ADDED
 
+    // 2. WAKE UP ALL 4 WORKERS
     for (int b = 0; b < NUM_WORKERS; b++) {
         vmath_mutex_lock(&g_worker_mutex[b]);
         g_worker_done[b] = 0;
@@ -552,6 +651,7 @@ EXPORT void vmath_step_swarm(int particle_count, float time, float dt, int state
         vmath_mutex_unlock(&g_worker_mutex[b]);
     }
 
+    // 3. WAIT FOR ALL 4 WORKERS TO FINISH
     for (int b = 0; b < NUM_WORKERS; b++) {
         vmath_mutex_lock(&g_worker_mutex[b]);
         while (g_worker_done[b] == 0) {
@@ -568,20 +668,24 @@ EXPORT void vmath_init_thread_pool() {
         vmath_cond_init(&g_worker_cv_done[i]);
 
         g_worker_sig[i] = 0;
-        g_worker_done[i] = 1; 
+        g_worker_done[i] = 1; // Start in 'done' state so the main thread doesn't wait
 
+        // Boot the thread and hand it its specific ID
         g_worker_threads[i] = vmath_thread_start(vmath_swarm_worker, (void*)(intptr_t)i);
     }
 }
 EXPORT void vmath_shutdown_thread_pool() {
     for (int i = 0; i < NUM_WORKERS; i++) {
+        // Send the kill signal
         vmath_mutex_lock(&g_worker_mutex[i]);
         g_worker_sig[i] = 2;
         vmath_cond_broadcast(&g_worker_cv_start[i]);
         vmath_mutex_unlock(&g_worker_mutex[i]);
 
+        // Wait for the thread to finish its current loop and exit
         vmath_thread_join(g_worker_threads[i]);
 
+        // Clean up OS resources
         vmath_mutex_destroy(&g_worker_mutex[i]);
         vmath_cond_destroy(&g_worker_cv_start[i]);
         vmath_cond_destroy(&g_worker_cv_done[i]);

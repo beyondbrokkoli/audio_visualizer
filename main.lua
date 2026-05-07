@@ -183,7 +183,7 @@ function love_update(dt)
     dt = math.min(dt, 0.033)
     Engine.Time = Engine.Time + dt
     frame_count = frame_count + 1
--- ====================================================
+    -- ====================================================
     -- INGEST PYTHON AUDIO STREAM (Non-Blocking)
     -- ====================================================
     Engine.Audio.prev_bass = Engine.Audio.bass or 0.0
@@ -199,34 +199,29 @@ function love_update(dt)
     end
 
     -- ====================================================
-    -- THE AUTO-VJ CHOREOGRAPHER 
+    -- THE AUTO-VJ CHOREOGRAPHER (Beat Skipper)
     -- ====================================================
     local is_beat_drop = false
     
-    -- Detect a hard transient (Bass spikes past 0.85 suddenly)
+    -- Detect a hard transient (Bass spikes past 0.85)
     if Engine.Audio.bass > 0.85 and Engine.Audio.prev_bass <= 0.85 then
         is_beat_drop = true
-        Engine.SwarmState = Engine.SwarmState + 1
-        if Engine.SwarmState > 6 then Engine.SwarmState = 0 end
-        print("[AUTO-VJ] Heavy Kick! Matrix Shifted to State: " .. Engine.SwarmState)
+        Engine.Audio.beat_counter = (Engine.Audio.beat_counter or 0) + 1
+        
+        -- THE FIX: Skip beats! Only shift the shape every 8th kick drum.
+        -- This gives the Smale's Paradox and Spiral plenty of time to form!
+        if Engine.Audio.beat_counter % 8 == 0 then
+            Engine.SwarmState = Engine.SwarmState + 1
+            if Engine.SwarmState > 6 then Engine.SwarmState = 0 end
+            print("[AUTO-VJ] Drop! Matrix Shifted to State: " .. Engine.SwarmState)
+        end
     end
-
-    -- Smooth Morphing Blends
-    if Engine.SwarmState == 0 then Engine.GravityBlend = math.min(1.0, Engine.GravityBlend + dt * 2.0)
-    else Engine.GravityBlend = math.max(0.0, Engine.GravityBlend - dt * 2.0) end
-
-    if Engine.SwarmState == 5 then Engine.MetalBlend = math.min(1.0, Engine.MetalBlend + dt * 0.5)
-    else Engine.MetalBlend = math.max(0.0, Engine.MetalBlend - dt * 2.0) end
-
-    if Engine.SwarmState == 6 then Engine.ParadoxBlend = math.min(1.0, Engine.ParadoxBlend + dt * 0.5)
-    else Engine.ParadoxBlend = math.max(0.0, Engine.ParadoxBlend - dt * 2.0) end
-
-    -- AUTO MOUSE INPUTS:
-    -- Explode on the beat drop!
-    local push_active = is_beat_drop and 1 or 0
-
-    -- Implode (pull) when the track gets very quiet (the build-up before a drop)
-    local pull_active = (Engine.Audio.bass < 0.1 and Engine.Audio.mid < 0.1) and 1 or 0
+    
+    -- We removed the auto "pull_active/push_active" from Lua!
+    -- We are moving all the explosion highlights down into the AVX2 C-Code
+    -- so they can trigger conditionally based on the shape!
+    local push_active = love.mouse.isDown(1) and 1 or 0
+    local pull_active = love.mouse.isDown(2) and 1 or 0
 
     -- ====================================================
     -- THE QUAD-BUFFER TRAFFIC COP (Heterogeneous Feedback)
