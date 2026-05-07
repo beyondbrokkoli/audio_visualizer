@@ -86,8 +86,9 @@ typedef struct {
     int push;
     int pull;
 } ComputePushConstants;
-VkBuffer g_buf_draw_cmd;
-void* g_mapped_draw_cmd; // We need the CPU mapped pointer to reset it!
+// Indirect Draw Command Buffers (Ping-Pong)
+VkBuffer g_buf_draw_cmd_A, g_buf_draw_cmd_B;
+void *g_mapped_draw_cmd_A, *g_mapped_draw_cmd_B;
 // ========================================================
 // HYBRID ENGINE STATE (Managed by Lua)
 // ========================================================
@@ -284,11 +285,12 @@ static int l_set_swapchain_asset(lua_State* L) {
     return 0;
 }
 static int l_submit_buffers(lua_State* L) {
-    if (lua_gettop(L) < 10) { // INCREASED TO 10
-        printf("[FATAL] l_submit_buffers expected 10 string arguments!\n");
+    if (lua_gettop(L) < 12) {
+        printf("[FATAL] l_submit_buffers expected 12 string arguments!\n");
         return 0;
     }
 
+    // Swarm Data Buffers
     g_buf_swarm_cpu_A = (VkBuffer)strtoull(lua_tostring(L, 1), NULL, 10);
     g_buf_swarm_cpu_B = (VkBuffer)strtoull(lua_tostring(L, 2), NULL, 10);
     g_buf_swarm_A     = (VkBuffer)strtoull(lua_tostring(L, 3), NULL, 10);
@@ -299,13 +301,16 @@ static int l_submit_buffers(lua_State* L) {
     g_mapped_swarm_A     = (void*)strtoull(lua_tostring(L, 7), NULL, 10);
     g_mapped_swarm_B     = (void*)strtoull(lua_tostring(L, 8), NULL, 10);
 
-    // THE NEW 4TH USB PORT (INDIRECT BUFFER)
-    g_buf_draw_cmd    = (VkBuffer)strtoull(lua_tostring(L, 9), NULL, 10);
-    g_mapped_draw_cmd = (void*)strtoull(lua_tostring(L, 10), NULL, 10);
+    // THE NEW PING-PONG INDIRECT BUFFERS
+    g_buf_draw_cmd_A    = (VkBuffer)strtoull(lua_tostring(L, 9), NULL, 10);
+    g_buf_draw_cmd_B    = (VkBuffer)strtoull(lua_tostring(L, 10), NULL, 10);
+    g_mapped_draw_cmd_A = (void*)strtoull(lua_tostring(L, 11), NULL, 10);
+    g_mapped_draw_cmd_B = (void*)strtoull(lua_tostring(L, 12), NULL, 10);
 
-    printf("[C BRIDGE] Penta GPU Buffers safely locked.\n");
+    printf("[C BRIDGE] All 12 GPU Buffers (including Indirect Ping-Pong) locked.\n");
     return 0;
 }
+
 // [BRIDGE] Set Vertex Count dynamically
 static int l_set_vertex_count(lua_State* L) {
     g_vertex_count = (uint32_t)luaL_checkinteger(L, 1);
@@ -853,14 +858,20 @@ int main() {
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         pfn_vkBeginCommandBuffer(cmd, &beginInfo);
+
         // ========================================================
-        // PRE-PASS: ZERO THE GPU COUNTER
+        // PRE-PASS: RESOLVE PING-PONG BUFFERS & ZERO THE COUNTER
         // ========================================================
+        // currentFrame is already defined at the top of the loop (frameIndex % MAX_FRAMES_IN_FLIGHT)
+        void* current_mapped_cmd = (currentFrame == 0) ? g_mapped_draw_cmd_A : g_mapped_draw_cmd_B;
+        VkBuffer current_buf_cmd = (currentFrame == 0) ? g_buf_draw_cmd_A : g_buf_draw_cmd_B;
+
         // We manually reset the instanceCount to 0 so the GPU can atomicAdd from scratch!
-        if (g_mapped_draw_cmd) {
-            uint32_t* draw_data = (uint32_t*)g_mapped_draw_cmd;
-            draw_data[1] = 0; // The second uint32_t is 'instanceCount'
+        if (current_mapped_cmd) {
+            uint32_t* draw_data = (uint32_t*)current_mapped_cmd;
+            draw_data[1] = 0; // ONLY zero the instanceCount!
         }
+
         // ========================================================
         // PASS A: COMPUTE SHADER (Simulation / Decoration)
         // ========================================================
@@ -869,22 +880,13 @@ int main() {
             pfn_vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_compPipeline);
 
             // Ping-Pong: One set reads A/writes B, the other reads B/writes A.
-            // In TRIPLE BUFFER mode, both sets read from SwarmCPU (Binding 0)
-            // and write to either Ping or Pong (Binding 1).
             VkDescriptorSet currentSet = (frameIndex % 2 == 0) ? g_compSet0 : g_compSet1;
             pfn_vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_compLayout, 0, 1, &currentSet, 0, NULL);
 
             // 1. Push SIMULATION data (32 bytes) to the COMPUTE stage
-            // Ensure your typedef struct ComputePushConstants at the top of main.c has 8 fields!
             typedef struct {
-                float dt;
-                float time;
-                int state;
-                int push;
-                int pull;
-                float bass;   // NEW
-                float mid;    // NEW
-                float treble; // NEW
+                float dt; float time; int state; int push; int pull;
+                float bass; float mid; float treble;
             } ComputePushConstants;
 
             ComputePushConstants sim_pc;
@@ -893,11 +895,10 @@ int main() {
             sim_pc.state  = g_comp_state;
             sim_pc.push   = g_comp_push;
             sim_pc.pull   = g_comp_pull;
-            sim_pc.bass   = g_comp_bass;   // ADDED
-            sim_pc.mid    = g_comp_mid;    // ADDED
-            sim_pc.treble = g_comp_treble; // ADDED
+            sim_pc.bass   = g_comp_bass;
+            sim_pc.mid    = g_comp_mid;
+            sim_pc.treble = g_comp_treble;
 
-            // sizeof(sim_pc) is now automatically 32 bytes!
             pfn_vkCmdPushConstants(cmd, g_compLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(sim_pc), &sim_pc);
 
             // 2. Dispatch the GPU threads
@@ -905,14 +906,20 @@ int main() {
             if (groupCount == 0) groupCount = 1;
             pfn_vkCmdDispatch(cmd, groupCount, 1, 1);
 
-            // 3. Sync: Ensure GPU finishes writing before the Rasterizer tries to read
+            // ========================================================
+            // 3. THE GRAND SYNCHRONIZATION BARRIER
+            // ========================================================
+            // Ensure GPU finishes writing to the SSBO AND the Indirect Buffer
+            // before the Rasterizer tries to read the geometry or the draw count!
             VkMemoryBarrier memBarrier = {0};
             memBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
             memBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-            memBarrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+            memBarrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
 
-            pfn_vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
-                                     0, 1, &memBarrier, 0, NULL, 0, NULL);
+            pfn_vkCmdPipelineBarrier(cmd,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                0, 1, &memBarrier, 0, NULL, 0, NULL);
         }
 
         // ----------------------------------------------------
@@ -983,8 +990,6 @@ int main() {
 
         pfn_vkCmdBeginRendering(cmd, &renderInfo);
 
-
-
         pfn_vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_gfxPipeline);
 
         VkViewport viewport = {0.0f, 0.0f, (float)g_width, (float)g_height, 0.0f, 1.0f};
@@ -992,20 +997,17 @@ int main() {
         VkRect2D scissor = {{0, 0}, {g_width, g_height}};
         pfn_vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-
         // ----------------------------------------------------
         // THE HYBRID TRAFFIC COP: Which buffer are we drawing?
         // ----------------------------------------------------
         VkBuffer vertexBuffer;
         if (g_force_draw_buffer == 2) {
-            // PURE CPU MODE: Draw the CPU buffer we just finished writing
             vertexBuffer = (frameIndex % 2 == 0) ? g_buf_swarm_cpu_A : g_buf_swarm_cpu_B;
         } else if (g_force_draw_buffer == 0) {
             vertexBuffer = g_buf_swarm_A;
         } else if (g_force_draw_buffer == 1) {
             vertexBuffer = g_buf_swarm_B;
         } else {
-            // HYBRID MODE: Draw the GPU buffer we just finished decorating
             vertexBuffer = (frameIndex % 2 == 0) ? g_buf_swarm_A : g_buf_swarm_B;
         }
 
@@ -1015,9 +1017,16 @@ int main() {
         // Push the LIVE Camera Matrix from Lua
         pfn_vkCmdPushConstants(cmd, g_gfxLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(CameraPushConstants), &g_cam_pc);
 
+        // ========================================================
         // THE MAGIC HANDOFF: Let the GPU dictate its own draw count!
-        // Parameters: cmd, buffer, offset, drawCount, stride
-        pfn_vkCmdDrawIndirect(cmd, g_buf_draw_cmd, 0, 1, 16);
+        // ========================================================
+        if (g_force_draw_buffer == -1) {
+            // HYBRID MODE: Execute the Indirect Command Buffer we just filled in Compute!
+            pfn_vkCmdDrawIndirect(cmd, current_buf_cmd, 0, 1, 16);
+        } else {
+            // PURE CPU MODE: Fallback to the manual Lua draw count
+            pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0);
+        }
 
         pfn_vkCmdEndRendering(cmd);
 

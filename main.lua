@@ -131,20 +131,31 @@ function love_load()
         memory.Buffers["SwarmCPU_B"],
         memory.Buffers["SwarmPing"],
         memory.Buffers["SwarmPong"],
-        memory.Buffers["DrawCmd"] -- <--- YOU MUST ADD THIS LINE!
+        memory.Buffers["DrawCmd_A"],
+        memory.Buffers["DrawCmd_B"]
     )
 
     -- Build Pipelines & Hand to C
     local win_width, win_height = C_Bridge.getWindowSize()
     ExecuteVulkanRebuild(win_width, win_height, true)
 
-    -- Handoff 8 GPU Pointers to C
+    -- Handoff 12 GPU Pointers to C
     C_Bridge.submit_buffers(
+        -- 1-4: The Swarm VkBuffers
         ptr2str(memory.Buffers["SwarmCPU_A"]), ptr2str(memory.Buffers["SwarmCPU_B"]),
         ptr2str(memory.Buffers["SwarmPing"]), ptr2str(memory.Buffers["SwarmPong"]),
+
+        -- 5-8: The Swarm Mapped Pointers
         ptr2str(memory.Mapped["SwarmCPU_A"]), ptr2str(memory.Mapped["SwarmCPU_B"]),
         ptr2str(memory.Mapped["SwarmPing"]), ptr2str(memory.Mapped["SwarmPong"]),
-        ptr2str(memory.Buffers["DrawCmd"]), ptr2str(memory.Mapped["DrawCmd"])
+
+        -- 9-10: THE INDIRECT VKBUFFERS (The "Containers")
+        ptr2str(memory.Buffers["DrawCmd_A"]),
+        ptr2str(memory.Buffers["DrawCmd_B"]),
+
+        -- 11-12: THE INDIRECT MAPPED PTRS (The "Access Pass")
+        ptr2str(memory.Mapped["DrawCmd_A"]),
+        ptr2str(memory.Mapped["DrawCmd_B"])
     )
 
     -- Bind Buffer A initially to give C a valid target before the first frame.
