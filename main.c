@@ -1009,7 +1009,6 @@ int main() {
         // We know exactly how many CPU particles there are. Draw them directly!
         pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0); 
 
-
         // ========================================================
         // LAYER 2: THE GPU AUTONOMOUS METEORS (The Magic Handoff)
         // ========================================================
