@@ -145,6 +145,7 @@ function GraphicsPipeline.Init(vk, core_state, width, height)
     bindingDesc[0].binding = 0
     bindingDesc[0].stride = 16 -- sizeof(GPU_VertexAoS) is 16 bytes (x, y, z, padding)
     bindingDesc[0].inputRate = 1 -- VK_VERTEX_INPUT_RATE_INSTANCE
+    bindingDesc[0].inputRate = 0 -- VK_VERTEX_INPUT_RATE_VERTEX
 
     local attrDesc = ffi.new("VkVertexInputAttributeDescription[1]")
     ffi.fill(attrDesc, ffi.sizeof(attrDesc))
