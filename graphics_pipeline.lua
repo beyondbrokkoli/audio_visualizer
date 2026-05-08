@@ -144,7 +144,6 @@ function GraphicsPipeline.Init(vk, core_state, width, height)
     ffi.fill(bindingDesc, ffi.sizeof(bindingDesc))
     bindingDesc[0].binding = 0
     bindingDesc[0].stride = 16 -- sizeof(GPU_VertexAoS) is 16 bytes (x, y, z, padding)
-    bindingDesc[0].inputRate = 1 -- VK_VERTEX_INPUT_RATE_INSTANCE
     bindingDesc[0].inputRate = 0 -- VK_VERTEX_INPUT_RATE_VERTEX
 
     local attrDesc = ffi.new("VkVertexInputAttributeDescription[1]")
@@ -171,7 +170,7 @@ function GraphicsPipeline.Init(vk, core_state, width, height)
     ffi.fill(inputAssembly, ffi.sizeof(inputAssembly))
     inputAssembly.sType = 20
     -- inputAssembly.topology = 3 -- VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
-    inputAssembly.topology = 1
+    inputAssembly.topology = 0 -- VK_PRIMITIVE_TOPOLOGY_POINT_LIST
     -- 1. Bake the Viewport dimensions natively
     local pViewports = ffi.new("VkViewport[1]")
     pViewports[0].x = 0.0

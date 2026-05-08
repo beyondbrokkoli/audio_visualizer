@@ -97,9 +97,10 @@ void main() {
     outParticles[id].z = finalPos.z;
     outParticles[id].pad = 1.0; 
 
-    // THE SINGLE DRAW COMMAND
     if (id == 0) {
-        // The rasterizer wakes up and draws the ENTIRE ATLAS flawlessly.
-        drawCmd.instanceCount = pc.total_active_count; 
+        drawCmd.vertexCount = pc.total_active_count; // 7,000,000 Vertices
+        drawCmd.instanceCount = 1;                   // 1 Massive Swarm
+        drawCmd.firstVertex = 0;
+        drawCmd.firstInstance = 0;
     }
 }

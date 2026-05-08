@@ -16,20 +16,8 @@ const vec3 baseColors[3] = vec3[](
 
 void main() {
     vThreadID = int(inPosition.w);
-    
-    // FIX 1: Since we disabled instancing, we MUST use gl_VertexIndex to get the color,
-    // otherwise every particle will be stuck on Flamingo!
-    vBaseColor = baseColors[gl_VertexIndex % 3];
+    vBaseColor = baseColors[gl_VertexIndex % 3]; // Linear color selection
 
-    // FIX 2: Project the exact center position directly. No corners, no offsets!
-    vec4 clipPos = pc.viewProj * vec4(inPosition.xyz, 1.0);
-    gl_Position = clipPos;
-
-    // FIX 3: Perspective Point Sizing! (Requires the largePoints feature we enabled)
-    // The constant (3000.0) is your "Bloom Scale". Tweak this if they are too big/small.
-    float pointSize = 4000.0 / clipPos.w; 
-    
-    // Clamp the size so we don't draw 100-pixel squares if the camera gets too close,
-    // and don't go below 1.0 pixel in the distance.
-    gl_PointSize = clamp(pointSize, 1.0, 4.0); 
+    gl_Position = pc.viewProj * vec4(inPosition.xyz, 1.0);
+    gl_PointSize = 2.0; // Will work safely because you patched vulkan_core!
 }
