@@ -210,7 +210,7 @@ function love_update(dt, currentFrame)
     -- 1. Use the hardware-locked frame from C!
     local active_cpu_idx = currentFrame
     local target_cpu_mapped = (active_cpu_idx == 0) and memory.Mapped["SwarmCPU_A"] or memory.Mapped["SwarmCPU_B"]
-    
+
     -- 2. Legacy Bind (Ignoring Heterogenous Feedback buffers)
     VibeMath.vmath_bind_vulkan_buffers(target_cpu_mapped, nil, nil)
 
@@ -218,7 +218,7 @@ function love_update(dt, currentFrame)
     VibeMath.vmath_step_swarm(Engine.DrawCount, Engine.Time, dt, Engine.SwarmState, push_active, pull_active)
 
     if Config.physics_mode == "HYBRID" then
-        -- Tell Compute Shader to read CPU data. 
+        -- Tell Compute Shader to read CPU data.
         C_Bridge.set_compute_push_constants(dt, Engine.Time, Engine.SwarmState, push_active, pull_active)
 
         C_Bridge.set_active_buffer(-1)

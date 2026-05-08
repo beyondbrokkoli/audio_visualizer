@@ -85,6 +85,7 @@ typedef struct {
     int state;
     int push;
     int pull;
+    uint32_t draw_count;
 } ComputePushConstants;
 // Indirect Draw Command Buffers (Ping-Pong)
 VkBuffer g_buf_draw_cmd_A, g_buf_draw_cmd_B;
@@ -551,9 +552,6 @@ static int l_set_compute_push_constants(lua_State* L) {
     g_comp_state = (int)luaL_checkinteger(L, 3);
     g_comp_push  = (int)luaL_checkinteger(L, 4);
     g_comp_pull  = (int)luaL_checkinteger(L, 5);
-//    g_comp_bass  = (float)luaL_checknumber(L, 6); // ADDED
-//    g_comp_mid   = (float)luaL_checknumber(L, 7); // ADDED
-//    g_comp_treble= (float)luaL_checknumber(L, 8); // ADDED
     return 0;
 }
 // [BRIDGE] Force Active Draw Buffer (For AVX2 In-Place Updates)
@@ -880,20 +878,13 @@ int main() {
             pfn_vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_compLayout, 0, 1, &currentSet, 0, NULL);
 
             // 1. Push SIMULATION data (32 bytes) to the COMPUTE stage
-            typedef struct {
-                float dt; float time; int state; int push; int pull;
-                float bass; float mid; float treble;
-            } ComputePushConstants;
-
             ComputePushConstants sim_pc;
             sim_pc.dt     = g_comp_dt;
             sim_pc.time   = g_comp_time;
             sim_pc.state  = g_comp_state;
             sim_pc.push   = g_comp_push;
             sim_pc.pull   = g_comp_pull;
-            sim_pc.bass   = g_comp_bass;
-            sim_pc.mid    = g_comp_mid;
-            sim_pc.treble = g_comp_treble;
+            sim_pc.draw_count = g_draw_count; // THE SSOT HANDOFF!
 
             pfn_vkCmdPushConstants(cmd, g_compLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(sim_pc), &sim_pc);
 
@@ -1009,11 +1000,11 @@ int main() {
         // ========================================================
         // LAYER 2: THE GPU AUTONOMOUS METEORS (The Indirect Layer)
         // ========================================================
-        // (Keep this exactly as it is. Compute wrote to the current frame's buffer 
+        // (Keep this exactly as it is. Compute wrote to the current frame's buffer
         //  before the barrier, so reading from the current frame is correct here).
-        VkBuffer gpuBuffer = (currentFrame == 0) ? g_buf_swarm_A : g_buf_swarm_B; 
+        VkBuffer gpuBuffer = (currentFrame == 0) ? g_buf_swarm_A : g_buf_swarm_B;
         pfn_vkCmdBindVertexBuffers(cmd, 0, 1, &gpuBuffer, offsets);
-        
+
         pfn_vkCmdDrawIndirect(cmd, current_buf_cmd, 0, 1, 16);
 
         pfn_vkCmdEndRendering(cmd);

@@ -20,23 +20,21 @@ layout(std430, binding = 3) buffer DrawCmd {
     uint firstInstance;
 } drawCmd;
 
-// THE FIX 1: Push Constants exactly match the 20-byte C struct now!
 layout(push_constant) uniform PushConstants {
     float dt; 
     float time; 
     int state; 
     int push; 
     int pull;
+    uint draw_count; // <--- Caught the SSOT!
 } pc;
 
 void main() {
     uint id = gl_GlobalInvocationID.x;
 
-    // THE FIX 2: Single Source of Truth for your particle count
-    uint current_particle_count = 100000; // Set this to match lua!
-
-    // Stop math if we are out of bounds
-    if (id >= current_particle_count) return;
+    // 1. THE DYNAMIC GUARD
+    // Never process or read past the exact number Lua requested
+    if (id >= pc.draw_count) return;
 
     // 1. READ THE "SKELETON" (The Absolute Truth from AVX2)
     vec3 basePos = vec3(inParticles[id].x, inParticles[id].y, inParticles[id].z);
@@ -59,16 +57,14 @@ void main() {
         warpedPos.z += cos(basePos.y * 0.05 - pc.time) * (amplitude * 0.5);
     }
 
-    // 3. THE HANDOFF
     outParticles[id].x = warpedPos.x;
     outParticles[id].y = warpedPos.y;
     outParticles[id].z = warpedPos.z;
     outParticles[id].pad = 1.0; 
 
-    // 4. Update the Draw Command once
+    // 2. THE DYNAMIC DRAW COUNT
+    // Tell the rasterizer exactly how many instances to draw
     if (id == 0) {
-        // THE FIX 3: Tell the Rasterizer to only draw the exact amount we calculated!
-        // The Singularity is dead.
-        drawCmd.instanceCount = current_particle_count; 
+        drawCmd.instanceCount = pc.draw_count; 
     }
 }
