@@ -228,11 +228,11 @@ function Memory.Init(vulkan_lib, core_state, use_avx2)
 
     -- Initialize defaults for A
     local draw_cmd_A = ffi.cast("VkDrawIndirectCommand*", Memory.Mapped["DrawCmd_A"])
-    draw_cmd_A.vertexCount = 24; draw_cmd_A.instanceCount = 0; draw_cmd_A.firstVertex = 0; draw_cmd_A.firstInstance = 0
+    draw_cmd_A.vertexCount = 1; draw_cmd_A.instanceCount = 0; draw_cmd_A.firstVertex = 0; draw_cmd_A.firstInstance = 0
 
     -- Initialize defaults for B
     local draw_cmd_B = ffi.cast("VkDrawIndirectCommand*", Memory.Mapped["DrawCmd_B"])
-    draw_cmd_B.vertexCount = 24; draw_cmd_B.instanceCount = 0; draw_cmd_B.firstVertex = 0; draw_cmd_B.firstInstance = 0
+    draw_cmd_B.vertexCount = 1; draw_cmd_B.instanceCount = 0; draw_cmd_B.firstVertex = 0; draw_cmd_B.firstInstance = 0
 
     print("[MEMORY] Allocated & Mapped Dual-Purpose Indirect Draw Buffer.")
 
