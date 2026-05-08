@@ -43,13 +43,13 @@ function Descriptors.Init(vk, device, bufCPU_A, bufCPU_B, bufPing, bufPong, bufD
     local computeDescriptorSetLayout = pLayout[0]
 
     -- ========================================================
-    -- 2. Push Constants (32 BYTES for Simulation State & Interaction)
+    -- 2. Push Constants (64 BYTES for the new Memory Atlas!)
     -- ========================================================
     local computePushRange = ffi.new("VkPushConstantRange[1]")
     ffi.fill(computePushRange, ffi.sizeof(computePushRange))
-    computePushRange[0].stageFlags = 32
+    computePushRange[0].stageFlags = 32 -- VK_SHADER_STAGE_COMPUTE_BIT
     computePushRange[0].offset = 0
-    computePushRange[0].size = 32
+    computePushRange[0].size = 64       -- <--- THE FIX: Changed from 32 to 64
 
     -- ========================================================
     -- 3. Pipeline Layout
