@@ -171,8 +171,7 @@ function GraphicsPipeline.Init(vk, core_state, width, height)
     ffi.fill(inputAssembly, ffi.sizeof(inputAssembly))
     inputAssembly.sType = 20
     -- inputAssembly.topology = 3 -- VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
-    inputAssembly.topology = 0 -- VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
-
+    inputAssembly.topology = 1
     -- 1. Bake the Viewport dimensions natively
     local pViewports = ffi.new("VkViewport[1]")
     pViewports[0].x = 0.0
