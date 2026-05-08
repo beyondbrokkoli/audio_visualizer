@@ -77,16 +77,20 @@ void* g_mapped_swarm_cpu_B = NULL;
 typedef struct {
     float viewProj[16]; // 64 bytes
 } CameraPushConstants;
-
 CameraPushConstants g_cam_pc = {0};
+
 typedef struct {
     float dt;
     float time;
     int state;
     int push;
     int pull;
-    uint32_t draw_count;
+    uint32_t total_active_count;
+    uint32_t offsets[4]; // 0:CpuCore, 1:Static, 2:GpuBoids, 3:GpuMeteors
+    uint32_t counts[4];
 } ComputePushConstants;
+ComputePushConstants g_atlas_pc = {0}; // Global storage for the Lua bridge
+
 // Indirect Draw Command Buffers (Ping-Pong)
 VkBuffer g_buf_draw_cmd_A, g_buf_draw_cmd_B;
 void *g_mapped_draw_cmd_A, *g_mapped_draw_cmd_B;
@@ -545,13 +549,23 @@ static int l_debug_particle(lua_State* L) {
 
     return 3; // Return x, y, z to Lua
 }
-// [BRIDGE] Set Compute Shader Push Constants
 static int l_set_compute_push_constants(lua_State* L) {
-    g_comp_dt    = (float)luaL_checknumber(L, 1);
-    g_comp_time  = (float)luaL_checknumber(L, 2);
-    g_comp_state = (int)luaL_checkinteger(L, 3);
-    g_comp_push  = (int)luaL_checkinteger(L, 4);
-    g_comp_pull  = (int)luaL_checkinteger(L, 5);
+    g_atlas_pc.dt                 = (float)luaL_checknumber(L, 1);
+    g_atlas_pc.time               = (float)luaL_checknumber(L, 2);
+    g_atlas_pc.state              = (int)luaL_checkinteger(L, 3);
+    g_atlas_pc.push               = (int)luaL_checkinteger(L, 4);
+    g_atlas_pc.pull               = (int)luaL_checkinteger(L, 5);
+    
+    g_atlas_pc.total_active_count = (uint32_t)luaL_checkinteger(L, 6);
+    
+    g_atlas_pc.offsets[0]         = (uint32_t)luaL_checkinteger(L, 7);
+    g_atlas_pc.counts[0]          = (uint32_t)luaL_checkinteger(L, 8);
+    g_atlas_pc.offsets[1]         = (uint32_t)luaL_checkinteger(L, 9);
+    g_atlas_pc.counts[1]          = (uint32_t)luaL_checkinteger(L, 10);
+    g_atlas_pc.offsets[2]         = (uint32_t)luaL_checkinteger(L, 11);
+    g_atlas_pc.counts[2]          = (uint32_t)luaL_checkinteger(L, 12);
+    g_atlas_pc.offsets[3]         = (uint32_t)luaL_checkinteger(L, 13);
+    g_atlas_pc.counts[3]          = (uint32_t)luaL_checkinteger(L, 14);
     return 0;
 }
 // [BRIDGE] Force Active Draw Buffer (For AVX2 In-Place Updates)
@@ -877,27 +891,21 @@ int main() {
             VkDescriptorSet currentSet = (frameIndex % 2 == 0) ? g_compSet0 : g_compSet1;
             pfn_vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_compLayout, 0, 1, &currentSet, 0, NULL);
 
-            // 1. Push SIMULATION data (32 bytes) to the COMPUTE stage
-            ComputePushConstants sim_pc;
-            sim_pc.dt     = g_comp_dt;
-            sim_pc.time   = g_comp_time;
-            sim_pc.state  = g_comp_state;
-            sim_pc.push   = g_comp_push;
-            sim_pc.pull   = g_comp_pull;
-            sim_pc.draw_count = g_draw_count; // THE SSOT HANDOFF!
-
-            pfn_vkCmdPushConstants(cmd, g_compLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(sim_pc), &sim_pc);
+            // 1. Push ATLAS data (48 bytes) to the COMPUTE stage
+            // We completely delete the local 'sim_pc' struct. 
+            // We just push the global 'g_atlas_pc' that Lua already populated for us!
+            pfn_vkCmdPushConstants(cmd, g_compLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &g_atlas_pc);
 
             // 2. Dispatch the GPU threads
-            uint32_t groupCount = (g_draw_count + 255) / 256;
+            // FIX: We must use the new SSOT total_active_count from the Atlas!
+            uint32_t groupCount = (g_atlas_pc.total_active_count + 255) / 256;
             if (groupCount == 0) groupCount = 1;
             pfn_vkCmdDispatch(cmd, groupCount, 1, 1);
 
             // ========================================================
             // 3. THE GRAND SYNCHRONIZATION BARRIER
             // ========================================================
-            // Ensure GPU finishes writing to the SSBO AND the Indirect Buffer
-            // before the Rasterizer tries to read the geometry or the draw count!
+            // (Keep your memory barrier exactly as it is!)
             VkMemoryBarrier memBarrier = {0};
             memBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
             memBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -908,7 +916,6 @@ int main() {
                 VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
                 0, 1, &memBarrier, 0, NULL, 0, NULL);
         }
-
         // ----------------------------------------------------
         // PASS B: GRAPHICS SHADER (DYNAMIC RENDERING)
         // ----------------------------------------------------
@@ -983,28 +990,19 @@ int main() {
         VkRect2D scissor = {{0, 0}, {g_width, g_height}};
         pfn_vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-        // Push the LIVE Camera Matrix from Lua (Applies to both layers)
+        // Push the LIVE Camera Matrix from Lua
         pfn_vkCmdPushConstants(cmd, g_gfxLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(CameraPushConstants), &g_cam_pc);
         VkDeviceSize offsets[] = {0};
 
         // ========================================================
-        // LAYER 1: THE CPU AVX2 SWARM (The Core Geometry)
+        // THE UNIFIED DRAW CALL (Memory Atlas)
         // ========================================================
-        // CRITICAL FIX: Perfect Double Buffering. 
-        // If currentFrame == 0, Lua is actively writing to A. So Vulkan MUST read from B!
-        VkBuffer cpuBuffer = (currentFrame == 0) ? g_buf_swarm_cpu_B : g_buf_swarm_cpu_A;
-        pfn_vkCmdBindVertexBuffers(cmd, 0, 1, &cpuBuffer, offsets);
-        
-        //pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0); 
+        // The Compute Shader already packed the warped CPU particles 
+        // AND the newborn GPU particles into this single buffer.
+        VkBuffer unifiedBuffer = (frameIndex % 2 == 0) ? g_buf_swarm_A : g_buf_swarm_B;
+        pfn_vkCmdBindVertexBuffers(cmd, 0, 1, &unifiedBuffer, offsets);
 
-        // ========================================================
-        // LAYER 2: THE GPU AUTONOMOUS METEORS (The Indirect Layer)
-        // ========================================================
-        // (Keep this exactly as it is. Compute wrote to the current frame's buffer
-        //  before the barrier, so reading from the current frame is correct here).
-        VkBuffer gpuBuffer = (currentFrame == 0) ? g_buf_swarm_A : g_buf_swarm_B;
-        pfn_vkCmdBindVertexBuffers(cmd, 0, 1, &gpuBuffer, offsets);
-
+        // Draw the entire Universe (CPU + GPU) in one hardware command!
         pfn_vkCmdDrawIndirect(cmd, current_buf_cmd, 0, 1, 16);
 
         pfn_vkCmdEndRendering(cmd);

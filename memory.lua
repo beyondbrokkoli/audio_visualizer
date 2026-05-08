@@ -16,9 +16,39 @@ local Memory = {
 }
 
 -- ========================================================================
--- [1] THE UNIVERSE BOUNDARIES
--- ========================================================
-local MAX_OBJS = 100000
+-- [1] THE UNIVERSE BOUNDARIES & THE MEMORY ATLAS
+-- ========================================================================
+-- The absolute ceiling of our VRAM/RAM arrays
+local MAX_OBJS = 15000000 
+
+-- Define the capacities of each behavioral slice.
+-- You only ever edit the 'count'. The engine will calculate the rest!
+Memory.Atlas = {
+    Static     = { count = 10000,   offset = 0 },
+    CpuCore    = { count = 5000000, offset = 0 },
+    GpuBoids   = { count = 2000000, offset = 0 },
+    GpuMeteors = { count = 50000,   offset = 0 }
+}
+
+-- AUTO-PACKING ALGORITHM: Compute offsets sequentially to guarantee zero overlaps
+local current_offset = 0
+
+Memory.Atlas.Static.offset = current_offset
+current_offset = current_offset + Memory.Atlas.Static.count
+
+Memory.Atlas.CpuCore.offset = current_offset
+current_offset = current_offset + Memory.Atlas.CpuCore.count
+
+Memory.Atlas.GpuBoids.offset = current_offset
+current_offset = current_offset + Memory.Atlas.GpuBoids.count
+
+Memory.Atlas.GpuMeteors.offset = current_offset
+current_offset = current_offset + Memory.Atlas.GpuMeteors.count
+
+Memory.TotalActive = current_offset
+
+-- Compile-time safety check: Never let the atlas exceed the physical allocation!
+assert(Memory.TotalActive <= MAX_OBJS, "FATAL: Memory Atlas partitions exceed MAX_OBJS limit!")
 
 -- ========================================================================
 -- [2] THE FFI SCHEMA (GPU Structs + CPU Structs + C Signatures)

@@ -3,19 +3,17 @@ local DebugProxy = require("debug_proxy")
 local vk_core = require("vulkan_core")
 local camera_math = require("camera")
 
--- The Engine table holds all Lua-side state.
 Engine = {
     Resize = { is_resizing = false, timer = 0.0, cooldown = 0.25, new_width = 0, new_height = 0 },
     vk_context = nil, vk_swapchain = nil, vk_graphics = nil, vk_compute = nil, vk_descriptors = nil,
     Time = 0.0,
-    DrawCount = 100000, -- 1 MILLION PARTICLES INITIATED
+    -- Removed DrawCount!
     SwarmState = 0,
     GravityBlend = 1.0,
     MetalBlend = 0.0,
     ParadoxBlend = 0.0,
     SpacePressedLast = false
 }
-
 -- ========================================================
 -- PILLAR 2: THE AVX2 MATH LIBRARY (VibeMath)
 -- ========================================================
@@ -138,8 +136,9 @@ function love_load()
     VibeMath.vmath_bind_vulkan_buffers(memory.Mapped["SwarmCPU_A"], nil, nil)
     VibeMath.vmath_bind_engine(memory.RenderStruct, nil, nil)
 
-    VibeMath.vmath_seed_swarm(Engine.DrawCount)
-    print("[INIT] VRAM Seeded with " .. tostring(Engine.DrawCount) .. " Particles.")
+    -- We seed the entire active memory atlas!
+    VibeMath.vmath_seed_swarm(memory.TotalActive)
+    print("[INIT] VRAM Seeded with " .. tostring(memory.TotalActive) .. " Particles.")
 
     if use_avx2 then
         VibeMath.vmath_init_thread_pool()
@@ -214,12 +213,19 @@ function love_update(dt, currentFrame)
     -- 2. Legacy Bind (Ignoring Heterogenous Feedback buffers)
     VibeMath.vmath_bind_vulkan_buffers(target_cpu_mapped, nil, nil)
 
-    -- 3. Legacy Step (No audio variables!)
-    VibeMath.vmath_step_swarm(Engine.DrawCount, Engine.Time, dt, Engine.SwarmState, push_active, pull_active)
+    -- 1. The CPU only processes its assigned slice count!
+    VibeMath.vmath_step_swarm(memory.Atlas.CpuCore.count, Engine.Time, dt, Engine.SwarmState, push_active, pull_active)
 
     if Config.physics_mode == "HYBRID" then
-        -- Tell Compute Shader to read CPU data.
-        C_Bridge.set_compute_push_constants(dt, Engine.Time, Engine.SwarmState, push_active, pull_active)
+        -- 2. Push the entire Memory Atlas to the GPU! (14 Arguments)
+        C_Bridge.set_compute_push_constants(
+            dt, Engine.Time, Engine.SwarmState, push_active, pull_active,
+            memory.TotalActive, 
+            memory.Atlas.CpuCore.offset, memory.Atlas.CpuCore.count,
+            memory.Atlas.Static.offset, memory.Atlas.Static.count,
+            memory.Atlas.GpuBoids.offset, memory.Atlas.GpuBoids.count,
+            memory.Atlas.GpuMeteors.offset, memory.Atlas.GpuMeteors.count
+        )
 
         C_Bridge.set_active_buffer(-1)
     elseif Config.physics_mode == "CPU_AVX2" then
@@ -230,8 +236,10 @@ function love_update(dt, currentFrame)
     camera_math.build_matrix(cam_state, Engine.vk_swapchain.extent.width, Engine.vk_swapchain.extent.height)
     C_Bridge.setCameraMatrix(unpack(cam_state.mat))
 
-    C_Bridge.set_draw_count(Engine.DrawCount)
-    C_Bridge.set_vertex_count(24)
+    -- 3. Update the Rasterizer's global vertex bounds to match the Atlas
+    C_Bridge.set_draw_count(memory.TotalActive)
+    C_Bridge.set_vertex_count(24) -- Set to 3 for triangles if performance lags!
+
     return true
 end
 
@@ -251,6 +259,15 @@ function love_keypressed(key)
             Config.physics_mode = "HYBRID"
             print("[ENGINE] Mode Swapped: HYBRID (CPU Paradox + GPU Turbulence)")
         end
+    elseif key == 71 then -- 'G' Key
+        -- Spawn 50,000 Newborn GPU Boids dynamically!
+        memory.Atlas.GpuBoids.count = memory.Atlas.GpuBoids.count + 50000
+        
+        -- Recalculate TotalActive (Simplistic rebuild of the atlas total)
+        memory.TotalActive = memory.Atlas.CpuCore.count + memory.Atlas.Static.count + 
+                             memory.Atlas.GpuBoids.count + memory.Atlas.GpuMeteors.count
+                             
+        print("[SPAWN] Newborn GPU Boids added! Total Active: " .. memory.TotalActive)
     end
 end
 
