@@ -995,7 +995,7 @@ int main() {
         VkBuffer cpuBuffer = (currentFrame == 0) ? g_buf_swarm_cpu_B : g_buf_swarm_cpu_A;
         pfn_vkCmdBindVertexBuffers(cmd, 0, 1, &cpuBuffer, offsets);
         
-        pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0); 
+        //pfn_vkCmdDraw(cmd, g_vertex_count, g_draw_count, 0, 0); 
 
         // ========================================================
         // LAYER 2: THE GPU AUTONOMOUS METEORS (The Indirect Layer)
