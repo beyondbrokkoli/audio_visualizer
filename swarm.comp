@@ -36,7 +36,7 @@ void main() {
 
     // We are now processing the 10M CPU particles directly
     // Ensure we don't read past the buffer if DrawCount is smaller
-    if (id >= 10000000) return; 
+    if (id >= 100000) return; 
 
     // 1. READ THE "SKELETON" (The Absolute Truth from AVX2)
     vec3 basePos = vec3(inParticles[id].x, inParticles[id].y, inParticles[id].z);
