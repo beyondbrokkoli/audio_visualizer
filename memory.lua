@@ -18,30 +18,30 @@ local Memory = {
 -- ========================================================================
 -- [1] THE UNIVERSE BOUNDARIES & THE MEMORY ATLAS
 -- ========================================================================
--- The absolute ceiling of our VRAM/RAM arrays
 local MAX_OBJS = 15000000 
 
--- Define the capacities of each behavioral slice.
--- You only ever edit the 'count'. The engine will calculate the rest!
 Memory.Atlas = {
-    Static     = { count = 10000,   offset = 0 },
-    CpuCore    = { count = 5000000, offset = 0 },
-    GpuBoids   = { count = 2000000, offset = 0 },
-    GpuMeteors = { count = 50000,   offset = 0 }
+    CpuCore    = { count = 5000000, offset = 0 }, -- MUST BE PACKED FIRST (Offset 0 for C!)
+    GpuBoids   = { count = 2000000, offset = 0 }, 
+    Static     = { count = 0,       offset = 0 }, -- Zeroed out to kill VRAM garbage!
+    GpuMeteors = { count = 0,       offset = 0 }  -- Zeroed out to kill the solid block!
 }
 
--- AUTO-PACKING ALGORITHM: Compute offsets sequentially to guarantee zero overlaps
 local current_offset = 0
 
-Memory.Atlas.Static.offset = current_offset
-current_offset = current_offset + Memory.Atlas.Static.count
-
+-- 1. Pack CPU Core at Offset 0 so vibemath.c aligns perfectly
 Memory.Atlas.CpuCore.offset = current_offset
 current_offset = current_offset + Memory.Atlas.CpuCore.count
 
+-- 2. Pack GPU Boids next
 Memory.Atlas.GpuBoids.offset = current_offset
 current_offset = current_offset + Memory.Atlas.GpuBoids.count
 
+-- 3. Pack Static (Currently 0)
+Memory.Atlas.Static.offset = current_offset
+current_offset = current_offset + Memory.Atlas.Static.count
+
+-- 4. Pack Meteors (Currently 0)
 Memory.Atlas.GpuMeteors.offset = current_offset
 current_offset = current_offset + Memory.Atlas.GpuMeteors.count
 
