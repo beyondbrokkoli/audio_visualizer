@@ -39,7 +39,7 @@ void main() {
 
     vec3 worldPos = inPosition.xyz + corners[cornerIndex];
     gl_Position = pc.viewProj * vec4(worldPos, 1.0);
-
-    vec3 lightDir = normalize(vec3(0.5, 1.0, -0.8));
-    vDiffuse = max(dot(faceNormal, lightDir), 0.2);
+    gl_PointSize = 1.0;
+    // vec3 lightDir = normalize(vec3(0.5, 1.0, -0.8));
+    // vDiffuse = max(dot(faceNormal, lightDir), 0.2);
 }

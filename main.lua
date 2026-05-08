@@ -238,8 +238,8 @@ function love_update(dt, currentFrame)
 
     -- 3. Update the Rasterizer's global vertex bounds to match the Atlas
     C_Bridge.set_draw_count(memory.TotalActive)
-    C_Bridge.set_vertex_count(3) -- Set to 3 for triangles if performance lags!
-
+    -- C_Bridge.set_vertex_count(3) -- Set to 3 for triangles if performance lags!
+    C_Bridge.set_vertex_count(1)
     return true
 end
 
