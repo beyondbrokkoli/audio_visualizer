@@ -135,13 +135,20 @@ function core.init()
         dynamicRendering = 1 -- VK_TRUE
     })
 
+    -- [NEW] 1. Request Physical Device Features (like Large Points)
+    local deviceFeatures = ffi.new("VkPhysicalDeviceFeatures")
+    ffi.fill(deviceFeatures, ffi.sizeof(deviceFeatures))
+    deviceFeatures.largePoints = 1 -- VK_TRUE: Allows gl_PointSize > 1.0!
+
+    -- 2. Hook it into the Device Create Info
     local deviceCreateInfo = ffi.new("VkDeviceCreateInfo", {
         sType = 3, -- VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO
         pNext = dynamicRendering,
         queueCreateInfoCount = 1,
         pQueueCreateInfos = queueCreateInfo,
-        enabledExtensionCount = 6, -- <--- BUMP THIS BACK TO 4!
-        ppEnabledExtensionNames = deviceExtensions
+        enabledExtensionCount = 6,
+        ppEnabledExtensionNames = deviceExtensions,
+        pEnabledFeatures = deviceFeatures -- <--- ADD THIS LINE!
     })
 
     local pDevice = ffi.new("VkDevice[1]")
