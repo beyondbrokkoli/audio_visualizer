@@ -6,75 +6,69 @@ struct Particle {
     float x, y, z, pad;
 };
 
-// Binding 0: Read-Only access to the CPU particles (if we want to spawn sparks off them later)
-layout(std430, binding = 0) readonly buffer InSwarm { Particle inParticles[]; };     
-// Binding 1: Our dedicated GPU autonomous layer!
-layout(std430, binding = 1) writeonly buffer OutSwarm { Particle outParticles[]; };  
-layout(std430, binding = 2) readonly buffer PastSwarm { Particle pastParticles[]; }; 
+// Binding 0: Read-Only access to the CPU particles
+layout(std430, binding = 0) readonly buffer InSwarm { Particle inParticles[]; };
+// Binding 1: Our dedicated GPU autonomous layer
+layout(std430, binding = 1) writeonly buffer OutSwarm { Particle outParticles[]; };
+// Binding 2 is PastSwarm, we can omit it if not actively using it in this shader to save binds.
 
 // THE INDIRECT DRAW BUFFER
 layout(std430, binding = 3) buffer DrawCmd {
     uint vertexCount;
-    uint instanceCount; // <--- We pack this!
+    uint instanceCount; 
     uint firstVertex;
     uint firstInstance;
 } drawCmd;
 
+// THE FIX 1: Push Constants exactly match the 20-byte C struct now!
 layout(push_constant) uniform PushConstants {
-    float dt; float time; int state; int push; int pull;
-    float bass; float mid; float treble;
+    float dt; 
+    float time; 
+    int state; 
+    int push; 
+    int pull;
 } pc;
-
-uint pcg_hash(uint seed) {
-    uint state = seed * 747796405u + 2891336453u;
-    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-    return (word >> 22u) ^ word;
-}
 
 void main() {
     uint id = gl_GlobalInvocationID.x;
 
-    // We are now processing the 10M CPU particles directly
-    // Ensure we don't read past the buffer if DrawCount is smaller
-    if (id >= 100000) return; 
+    // THE FIX 2: Single Source of Truth for your particle count
+    uint current_particle_count = 100000; // Set this to match lua!
+
+    // Stop math if we are out of bounds
+    if (id >= current_particle_count) return;
 
     // 1. READ THE "SKELETON" (The Absolute Truth from AVX2)
     vec3 basePos = vec3(inParticles[id].x, inParticles[id].y, inParticles[id].z);
 
     // 2. APPLY THE GPU WATER HAX
-    // We use spatial coordinates + time to create undulating waves
     float speed = 2.5;
-    float frequency = 0.02; // Tightness of the ripples
-    float amplitude = 40.0; // Depth of the liquid shimmer
+    float frequency = 0.02; 
+    float amplitude = 40.0; 
 
-    // Organic wave sum (Sine for X/Y, Cosine for Z)
     float ripple = sin((basePos.x * frequency) + (pc.time * speed)) + 
                    cos((basePos.z * frequency) + (pc.time * speed));
-    
+
     vec3 warpedPos = basePos;
 
-    // Apply shimmer based on state
     if (pc.state == 0) {
-        // Subtle Surface Tension (Y-axis only)
         warpedPos.y += ripple * amplitude;
-    } 
-    else if (pc.state > 0) {
-        // Deep Water Turbulence (All axes)
+    } else if (pc.state > 0) {
         warpedPos.x += sin(basePos.y * 0.05 + pc.time) * (amplitude * 0.5);
         warpedPos.y += ripple * amplitude;
         warpedPos.z += cos(basePos.y * 0.05 - pc.time) * (amplitude * 0.5);
     }
 
     // 3. THE HANDOFF
-    // In this mode, we aren't using atomicAdd because we aren't spawning.
-    // We are doing a parallel 1:1 transfer from CPU_Buffer -> GPU_Buffer.
     outParticles[id].x = warpedPos.x;
     outParticles[id].y = warpedPos.y;
     outParticles[id].z = warpedPos.z;
-    outParticles[id].pad = 1.0; // Mark as processed
+    outParticles[id].pad = 1.0; 
 
-    // 4. Update the Draw Command once (The first thread handles it)
+    // 4. Update the Draw Command once
     if (id == 0) {
-        drawCmd.instanceCount = 10000000; // Force draw all 10M
+        // THE FIX 3: Tell the Rasterizer to only draw the exact amount we calculated!
+        // The Singularity is dead.
+        drawCmd.instanceCount = current_particle_count; 
     }
 }
